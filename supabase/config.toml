@@ -1,0 +1,5 @@
+-- supabase/config.toml (optional local CLI)
+-- Prefer running migrations via the Supabase SQL editor if CLI is not installed.
+
+[project]
+id = "reset-gaming-cafe"
