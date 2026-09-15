@@ -17,6 +17,7 @@ import {
   updateBookingStatusAction,
 } from "@/lib/actions/sessions";
 import { BOOKING_STATUSES, DURATION_OPTIONS } from "@/lib/constants";
+import { unlockSessionAudio } from "@/lib/session-sounds";
 import type {
   BookingStatus,
   BookingWithRelations,
@@ -92,7 +93,10 @@ export function BookingsManager({
     startTransition(async () => {
       const result = await startSessionFromBookingAction(bookingId);
       if (!result.success) toast.error(result.error);
-      else toast.success(result.message || "Session started");
+      else {
+        unlockSessionAudio();
+        toast.success(result.message || "Session started");
+      }
     });
   }
 

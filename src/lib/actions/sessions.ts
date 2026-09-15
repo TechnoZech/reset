@@ -131,6 +131,7 @@ export async function startSessionAction(
     date: new Date(),
     rules,
     fallbackHourlyRate: Number(screen.hourly_rate),
+    players: data.players,
   });
 
   const { data: session, error: sessionError } = await supabase
@@ -141,6 +142,7 @@ export async function startSessionAction(
       game_id: data.game_id || null,
       players: data.players,
       rate,
+      duration_minutes: data.duration_minutes,
       status: "active",
       started_at: new Date().toISOString(),
       total_paused_ms: 0,
@@ -256,7 +258,7 @@ export async function endSessionAction(input: unknown): Promise<ActionResult<{ a
   const { data: session } = await supabase
     .from("sessions")
     .select(
-      "id, status, screen_id, started_at, paused_at, total_paused_ms, booking_id, rate"
+      "id, status, screen_id, started_at, paused_at, total_paused_ms, booking_id, rate, players"
     )
     .eq("id", parsed.data.session_id)
     .maybeSingle();
@@ -290,7 +292,8 @@ export async function endSessionAction(input: unknown): Promise<ActionResult<{ a
     consoleType: (screen?.console_type as ConsoleType) ?? "PS5",
     date: endedAt,
     rules,
-    fallbackHourlyRate: Number(screen?.hourly_rate ?? 200),
+    fallbackHourlyRate: Number(screen?.hourly_rate ?? 89),
+    players: session.players ?? 1,
   });
 
   await supabase
@@ -428,7 +431,7 @@ export async function rescheduleBookingAction(input: unknown): Promise<ActionRes
   const rules = await loadPricingRules();
   const { data: booking } = await supabase
     .from("bookings")
-    .select("id, screen_id")
+    .select("id, screen_id, players")
     .eq("id", data.booking_id)
     .single();
 
@@ -436,7 +439,7 @@ export async function rescheduleBookingAction(input: unknown): Promise<ActionRes
 
   const screenId = data.screen_id ?? booking.screen_id;
   let consoleType: ConsoleType = "PS5";
-  let hourly = 200;
+  let hourly = 89;
 
   if (screenId) {
     const { data: screen } = await supabase
@@ -457,6 +460,7 @@ export async function rescheduleBookingAction(input: unknown): Promise<ActionRes
     startTime: data.start_time,
     rules,
     fallbackHourlyRate: hourly,
+    players: booking.players ?? 1,
   });
 
   const { error } = await supabase

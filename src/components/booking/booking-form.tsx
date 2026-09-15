@@ -8,7 +8,9 @@ import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 import { createGuestBookingAction } from "@/lib/actions/bookings";
 import { guestBookingSchema, type GuestBookingInput } from "@/lib/validations";
+import { GameCover } from "@/components/game-cover";
 import { DURATION_OPTIONS, GAME_CATEGORIES, PLAYER_OPTIONS } from "@/lib/constants";
+import { applyPlayerMultiplier } from "@/lib/pricing";
 import { formatCurrency, toDateString } from "@/lib/utils";
 import type { Game } from "@/lib/types/database";
 import { Button } from "@/components/ui/button";
@@ -48,7 +50,7 @@ export function BookingForm({
     defaultValues: {
       name: "",
       mobile: "",
-      players: 2,
+      players: 1,
       booking_date: toDateString(new Date()),
       start_time: "18:00",
       duration_minutes: 60,
@@ -71,9 +73,10 @@ export function BookingForm({
     });
   }, [games, players, category, localOnly, multiplayerOnly]);
 
-  const quote =
+  const basePrice =
     pricing.find((p) => p.duration_minutes === duration)?.price ??
-    Math.ceil(((pricing.find((p) => p.duration_minutes === 60)?.price ?? 180) * duration) / 60);
+    Math.ceil(((pricing.find((p) => p.duration_minutes === 60)?.price ?? 89) * duration) / 60);
+  const quote = applyPlayerMultiplier(Number(basePrice), players);
 
   const onSubmit = form.handleSubmit((values) => {
     startTransition(async () => {
@@ -152,7 +155,7 @@ export function BookingForm({
               <SelectContent>
                 {DURATION_OPTIONS.map((d) => (
                   <SelectItem key={d} value={String(d)}>
-                    {d} minutes
+                    {d === 30 ? "30 minutes" : d === 60 ? "1 hour" : "2 hours"}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -202,28 +205,35 @@ export function BookingForm({
               {category !== "all" ? ` in ${category}` : ""}.
             </div>
           ) : (
-            <div className="grid max-h-72 gap-2 overflow-y-auto sm:grid-cols-2">
+            <div className="grid max-h-80 gap-2 overflow-y-auto sm:grid-cols-2">
               {filteredGames.map((game) => (
                 <button
                   key={game.id}
                   type="button"
                   onClick={() => form.setValue("game_id", game.id, { shouldValidate: true })}
                   className={cn(
-                    "rounded-lg border p-3 text-left transition-colors",
+                    "overflow-hidden rounded-lg border text-left transition-colors",
                     selectedGame === game.id
                       ? "border-primary bg-primary/10"
                       : "border-border hover:border-primary/40"
                   )}
                 >
-                  <div className="flex items-start justify-between gap-2">
-                    <span className="font-medium">{game.name}</span>
-                    <Badge variant="secondary" className="text-[10px]">
-                      {game.category}
-                    </Badge>
+                  <GameCover
+                    name={game.name}
+                    imageUrl={game.image_url}
+                    className="h-24 w-full"
+                  />
+                  <div className="p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="font-medium">{game.name}</span>
+                      <Badge variant="secondary" className="text-[10px]">
+                        {game.category}
+                      </Badge>
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {game.min_players}–{game.max_players} players
+                    </p>
                   </div>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {game.min_players}–{game.max_players} players
-                  </p>
                 </button>
               ))}
             </div>
@@ -250,6 +260,10 @@ export function BookingForm({
             <dt className="text-muted-foreground">Duration</dt>
             <dd>{duration} min</dd>
           </div>
+          <div className="flex justify-between">
+            <dt className="text-muted-foreground">Per player</dt>
+            <dd>{formatCurrency(Number(basePrice))}</dd>
+          </div>
           <div className="flex justify-between border-t border-border pt-3">
             <dt className="font-medium">Estimated total</dt>
             <dd className="font-display text-lg font-bold text-primary">
@@ -258,7 +272,8 @@ export function BookingForm({
           </div>
         </dl>
         <p className="text-xs text-muted-foreground">
-          Final price is calculated and locked on the server when you submit.
+          Price is per player — {players} player{players > 1 ? "s" : ""} ×{" "}
+          {formatCurrency(Number(basePrice))}. Final total is locked on the server.
         </p>
         <Button type="submit" className="w-full" size="lg" disabled={pending}>
           {pending && <Loader2 className="size-4 animate-spin" />}

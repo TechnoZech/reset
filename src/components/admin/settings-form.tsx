@@ -22,7 +22,7 @@ export function SettingsForm({ settings }: { settings: CafeSettings | null }) {
   const form = useForm<SettingsForm>({
     resolver: zodResolver(cafeSettingsSchema),
     defaultValues: {
-      cafe_name: settings?.cafe_name ?? "RESET",
+      cafe_name: settings?.cafe_name ?? "USA GAMING",
       address: settings?.address ?? "",
       phone: settings?.phone ?? "",
       email: settings?.email ?? "",

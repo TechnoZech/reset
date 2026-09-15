@@ -57,7 +57,7 @@ const defaults: PricingForm = {
   name: "",
   console_type: "PS5",
   duration_minutes: 60,
-  price: 200,
+  price: 89,
   start_time: "",
   end_time: "",
   day_type: "all",

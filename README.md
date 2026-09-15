@@ -1,4 +1,4 @@
-# RESET — PlayStation Gaming Cafe Management System
+# USA GAMING — PlayStation Gaming Cafe Management System
 
 Production-ready Next.js app for managing a PlayStation gaming cafe: customer booking site + staff admin panel with live screen sessions.
 
@@ -34,6 +34,12 @@ supabase/migrations/20260314000000_initial_schema.sql
 
 ```text
 supabase/seed.sql
+```
+
+If the database was already seeded with old prices, also run:
+
+```text
+supabase/migrations/20260315000000_usa_gaming_pricing.sql
 ```
 
 5. Create an Auth user (email/password) in the Supabase dashboard.

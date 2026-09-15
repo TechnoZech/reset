@@ -17,6 +17,8 @@ import {
   resumeSessionAction,
 } from "@/lib/actions/sessions";
 import type { Customer, Game, ScreenWithSession } from "@/lib/types/database";
+import { useSessionOvertimeAlarm, isSessionOvertime } from "@/hooks/use-session-overtime-alarm";
+import { unlockSessionAudio } from "@/lib/session-sounds";
 import { formatCurrency, cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -51,10 +53,26 @@ export function ScreenGrid({
   const [startScreen, setStartScreen] = useState<ScreenWithSession | null>(null);
   const [viewScreen, setViewScreen] = useState<ScreenWithSession | null>(null);
   const [pending, startTransition] = useTransition();
+  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
     setScreens(initialScreens);
   }, [initialScreens]);
+
+  useSessionOvertimeAlarm(screens);
+
+  useEffect(() => {
+    const hasActive = screens.some((s) => s.active_session?.status === "active");
+    if (!hasActive) return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [screens]);
+
+  useEffect(() => {
+    const unlock = () => unlockSessionAudio();
+    window.addEventListener("pointerdown", unlock, { once: true });
+    return () => window.removeEventListener("pointerdown", unlock);
+  }, []);
 
   const refresh = useCallback(() => {
     router.refresh();
@@ -102,11 +120,17 @@ export function ScreenGrid({
           const session = screen.active_session;
           const booking = screen.upcoming_booking;
           const status = screen.status;
+          const overtime = session
+            ? isSessionOvertime({ ...session, nowMs: now })
+            : false;
 
           return (
             <div
               key={screen.id}
-              className="flex flex-col rounded-xl border border-border bg-card p-5 transition-colors hover:border-white/15"
+              className={cn(
+                "flex flex-col rounded-xl border bg-card p-5 transition-colors hover:border-white/15",
+                overtime ? "border-primary/60 ring-1 ring-primary/30" : "border-border"
+              )}
             >
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -137,6 +161,7 @@ export function ScreenGrid({
                       pausedAt={session.paused_at}
                       totalPausedMs={session.total_paused_ms}
                       status={session.status}
+                      durationMinutes={session.duration_minutes}
                     />
                     <p className="text-sm text-muted-foreground">
                       Package {formatCurrency(Number(session.rate))}
@@ -197,7 +222,12 @@ export function ScreenGrid({
                     variant="destructive"
                     disabled={pending}
                     onClick={() =>
-                      run(() => endSessionAction({ session_id: session.id, payment_method: "cash" }))
+                      run(() =>
+                        endSessionAction({
+                          session_id: session.id,
+                          payment_method: "cash",
+                        })
+                      )
                     }
                   >
                     <Square className="size-3.5" />

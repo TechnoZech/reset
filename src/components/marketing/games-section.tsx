@@ -1,3 +1,4 @@
+import { GameCover } from "@/components/game-cover";
 import type { Game } from "@/lib/types/database";
 
 export function GamesSection({ games }: { games: Game[] }) {
@@ -21,18 +22,29 @@ export function GamesSection({ games }: { games: Game[] }) {
           {games.map((game) => (
             <article
               key={game.id}
-              className="rounded-xl border border-border bg-card p-4 transition-colors hover:border-primary/30"
+              className="group overflow-hidden rounded-xl border border-border bg-card transition-colors hover:border-primary/40"
             >
-              <div className="flex aspect-video items-center justify-center rounded-lg bg-muted text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                {game.category}
+              <div className="relative aspect-[4/5] overflow-hidden bg-muted">
+                <GameCover
+                  name={game.name}
+                  imageUrl={game.image_url}
+                  className="size-full transition-transform duration-500 group-hover:scale-105"
+                />
+                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/70 to-transparent p-4 pt-16">
+                  <p className="text-[10px] font-medium tracking-[0.16em] text-white/70 uppercase">
+                    {game.category}
+                  </p>
+                  <h3 className="mt-1 font-display text-lg font-semibold text-white">
+                    {game.name}
+                  </h3>
+                  <p className="mt-1 text-xs text-white/70">
+                    {game.min_players === game.max_players
+                      ? `${game.max_players} player${game.max_players > 1 ? "s" : ""}`
+                      : `${game.min_players}–${game.max_players} players`}
+                    {game.local_multiplayer ? " · Local MP" : ""}
+                  </p>
+                </div>
               </div>
-              <h3 className="mt-3 font-medium">{game.name}</h3>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {game.min_players === game.max_players
-                  ? `${game.max_players} player${game.max_players > 1 ? "s" : ""}`
-                  : `${game.min_players}–${game.max_players} players`}
-                {game.local_multiplayer ? " · Local MP" : ""}
-              </p>
             </article>
           ))}
         </div>

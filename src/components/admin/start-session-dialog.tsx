@@ -6,7 +6,9 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import { Loader2, Search } from "lucide-react";
 import { startSessionAction } from "@/lib/actions/sessions";
+import { unlockSessionAudio } from "@/lib/session-sounds";
 import { startSessionSchema, type StartSessionInput } from "@/lib/validations";
+import { GameCover } from "@/components/game-cover";
 import { DURATION_OPTIONS, PLAYER_OPTIONS } from "@/lib/constants";
 import type { Customer, Game } from "@/lib/types/database";
 import { Button } from "@/components/ui/button";
@@ -95,6 +97,7 @@ export function StartSessionDialog({
         toast.error(result.error);
         return;
       }
+      unlockSessionAudio();
       toast.success(result.message || "Session started");
       onOpenChange(false);
       form.reset({
@@ -210,12 +213,17 @@ export function StartSessionDialog({
                   key={g.id}
                   type="button"
                   className={cn(
-                    "flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm",
+                    "flex w-full items-center gap-3 rounded-md px-2 py-2 text-left text-sm",
                     selectedGame === g.id ? "bg-primary/15 text-primary" : "hover:bg-muted"
                   )}
                   onClick={() => form.setValue("game_id", g.id)}
                 >
-                  <span>{g.name}</span>
+                  <GameCover
+                    name={g.name}
+                    imageUrl={g.image_url}
+                    className="size-10 shrink-0 rounded-md"
+                  />
+                  <span className="min-w-0 flex-1 truncate">{g.name}</span>
                   <span className="text-xs text-muted-foreground">{g.category}</span>
                 </button>
               ))}

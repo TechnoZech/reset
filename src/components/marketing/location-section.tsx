@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { MapPin, Phone, Mail, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { INSTAGRAM_HANDLE, INSTAGRAM_URL } from "@/lib/constants";
 
 type Settings = {
   cafe_name: string;
@@ -34,11 +35,33 @@ export function LocationSection({ settings }: { settings: Settings }) {
                 </li>
                 <li className="flex gap-3">
                   <Phone className="mt-0.5 size-4 shrink-0 text-primary" />
-                  <span>{settings?.phone || "+91 98765 43210"}</span>
+                  <span>{settings?.phone || "+91 78618 20446"}</span>
                 </li>
                 <li className="flex gap-3">
                   <Mail className="mt-0.5 size-4 shrink-0 text-primary" />
-                  <span>{settings?.email || "hello@reset.cafe"}</span>
+                  <span>{settings?.email || "hello@usagaming.com"}</span>
+                </li>
+                <li className="flex gap-3">
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="mt-0.5 size-4 shrink-0 text-primary"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    aria-hidden
+                  >
+                    <rect x="3" y="3" width="18" height="18" rx="5" />
+                    <circle cx="12" cy="12" r="4" />
+                    <circle cx="17.5" cy="6.5" r="0.8" fill="currentColor" />
+                  </svg>
+                  <a
+                    href={INSTAGRAM_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="hover:text-primary"
+                  >
+                    {INSTAGRAM_HANDLE}
+                  </a>
                 </li>
                 <li className="flex gap-3">
                   <Clock className="mt-0.5 size-4 shrink-0 text-primary" />

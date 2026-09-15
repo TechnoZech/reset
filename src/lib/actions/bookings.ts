@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/admin";
+import { PUBLIC_PRICING } from "@/lib/constants";
 import { calculatePrice } from "@/lib/pricing";
 import { addMinutesToTime } from "@/lib/utils";
 import { guestBookingSchema } from "@/lib/validations";
@@ -52,6 +53,7 @@ export async function createGuestBookingAction(
     durationMinutes: data.duration_minutes,
     date: data.booking_date,
     startTime: data.start_time,
+    players: data.players,
     rules: (rules ?? []) as Pick<
       PricingRule,
       | "console_type"
@@ -161,9 +163,22 @@ export async function getPublicPricing(consoleType: ConsoleType = "PS5") {
     .eq("is_active", true)
     .eq("console_type", consoleType)
     .eq("day_type", "all")
+    .in("duration_minutes", [30, 60, 120])
     .order("duration_minutes");
 
-  return data ?? [];
+  const rows = data ?? [];
+  return PUBLIC_PRICING.map((tier) => {
+    const match = rows.find((r) => r.duration_minutes === tier.duration_minutes);
+    return {
+      id: match?.id ?? String(tier.duration_minutes),
+      name: match?.name ?? `PS5 ${tier.label}`,
+      console_type: consoleType,
+      duration_minutes: tier.duration_minutes,
+      price: tier.price,
+      day_type: "all" as const,
+      is_active: true,
+    };
+  });
 }
 
 export async function getPublicGames(players?: number) {

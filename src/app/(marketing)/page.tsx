@@ -1,4 +1,5 @@
 import { FeaturesSection } from "@/components/marketing/features-section";
+import { GallerySection } from "@/components/marketing/gallery-section";
 import { GamesSection } from "@/components/marketing/games-section";
 import { HeroSection } from "@/components/marketing/hero-section";
 import { LocationSection } from "@/components/marketing/location-section";
@@ -47,6 +48,7 @@ export default async function HomePage() {
       <HeroSection />
       <FeaturesSection />
       <ScreensSection />
+      <GallerySection />
       <GamesSection games={games} />
       <PricingSection pricing={pricing} />
       <LocationSection settings={settings} />

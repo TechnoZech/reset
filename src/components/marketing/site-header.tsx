@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 const links = [
   { href: "/#experience", label: "Experience" },
   { href: "/#screens", label: "Screens" },
+  { href: "/#gallery", label: "Gallery" },
   { href: "/#games", label: "Games" },
   { href: "/#pricing", label: "Pricing" },
   { href: "/#location", label: "Location" },
@@ -21,7 +22,12 @@ export function SiteHeader() {
   return (
     <header className="sticky top-0 z-50 border-b border-border/80 bg-background/85 backdrop-blur-md">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
-        <Link href="/" className="font-display text-xl font-bold tracking-tight">
+        <Link href="/" className="flex items-center gap-2.5 font-display text-xl font-bold tracking-tight">
+          <img
+            src="/usa-gaming-logo.jpg"
+            alt=""
+            className="size-8 rounded-full object-cover ring-1 ring-white/10"
+          />
           <span className="text-primary">{CAFE_NAME}</span>
         </Link>
 

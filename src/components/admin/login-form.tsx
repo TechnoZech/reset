@@ -39,7 +39,7 @@ export function LoginForm() {
             type="email"
             required
             autoComplete="email"
-            placeholder="owner@reset.cafe"
+            placeholder="owner@usagaming.com"
           />
         </div>
         <div className="space-y-2">

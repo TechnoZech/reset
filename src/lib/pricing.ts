@@ -1,5 +1,11 @@
+import { PUBLIC_PRICING } from "@/lib/constants";
 import type { ConsoleType, DayType, PricingRule } from "@/lib/types/database";
 import { isWeekend, timeToMinutes } from "@/lib/utils";
+
+function publicMenuPrice(consoleType: ConsoleType, durationMinutes: number) {
+  if (consoleType !== "PS5") return null;
+  return PUBLIC_PRICING.find((tier) => tier.duration_minutes === durationMinutes)?.price ?? null;
+}
 
 export interface PriceQuoteInput {
   consoleType: ConsoleType;
@@ -18,6 +24,8 @@ export interface PriceQuoteInput {
   >[];
   /** Fallback hourly rate from screen if no rule matches */
   fallbackHourlyRate?: number;
+  /** Per-player multiplier. 2 players = 2× base rate. */
+  players?: number;
 }
 
 function dayTypeMatches(ruleDay: DayType, date: Date) {
@@ -67,7 +75,9 @@ export function calculatePrice(input: PriceQuoteInput): number {
       })
       .sort((a, b) => b.score - a.score || Number(a.r.price) - Number(b.r.price));
 
-    return Number(scored[0].r.price);
+    const menuPrice = publicMenuPrice(input.consoleType, input.durationMinutes);
+    const base = menuPrice ?? Number(scored[0].r.price);
+    return applyPlayerMultiplier(base, input.players);
   }
 
   // Pro-rate from nearest longer rule or hourly fallback
@@ -79,11 +89,20 @@ export function calculatePrice(input: PriceQuoteInput): number {
   );
 
   const hourly =
+    publicMenuPrice(input.consoleType, 60) ??
     sameConsole.find((r) => r.duration_minutes === 60)?.price ??
     input.fallbackHourlyRate ??
-    200;
+    89;
 
-  return Math.ceil((Number(hourly) * input.durationMinutes) / 60);
+  return applyPlayerMultiplier(
+    Math.ceil((Number(hourly) * input.durationMinutes) / 60),
+    input.players
+  );
+}
+
+export function applyPlayerMultiplier(basePrice: number, players = 1) {
+  const count = Number.isFinite(players) ? Math.max(1, Math.round(players)) : 1;
+  return Math.round(basePrice * count);
 }
 
 /** Bill actual play time using 15-minute rounding up against pricing rules. */
@@ -94,6 +113,7 @@ export function calculateSessionCharge(params: {
   startTime?: string | null;
   rules: PriceQuoteInput["rules"];
   fallbackHourlyRate?: number;
+  players?: number;
 }) {
   const minutes = Math.max(1, Math.ceil(params.elapsedMs / 60000));
   const billed = Math.ceil(minutes / 15) * 15;
@@ -106,6 +126,7 @@ export function calculateSessionCharge(params: {
     startTime: params.startTime,
     rules: params.rules,
     fallbackHourlyRate: params.fallbackHourlyRate,
+    players: params.players,
   });
 
   // If no exact rule, calculatePrice already pro-rates via hourly
@@ -126,6 +147,7 @@ export function calculateSessionCharge(params: {
     startTime: params.startTime,
     rules: params.rules,
     fallbackHourlyRate: params.fallbackHourlyRate,
+    players: params.players,
   });
 
   return {

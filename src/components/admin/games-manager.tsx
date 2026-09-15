@@ -12,6 +12,7 @@ import {
   upsertGameAction,
 } from "@/lib/actions/admin";
 import { gameSchema } from "@/lib/validations";
+import { GameCover } from "@/components/game-cover";
 import { GAME_CATEGORIES } from "@/lib/constants";
 import type { Game, GameCategory } from "@/lib/types/database";
 import { cn } from "@/lib/utils";
@@ -228,18 +229,11 @@ export function GamesManager({ games }: { games: Game[] }) {
             >
               <div className="flex gap-3">
                 <div className="size-16 shrink-0 overflow-hidden rounded-lg bg-muted">
-                  {game.image_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={game.image_url}
-                      alt={game.name}
-                      className="size-full object-cover"
-                    />
-                  ) : (
-                    <div className="flex size-full items-center justify-center text-xs text-muted-foreground">
-                      No art
-                    </div>
-                  )}
+                  <GameCover
+                    name={game.name}
+                    imageUrl={game.image_url}
+                    className="size-full"
+                  />
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-start justify-between gap-2">

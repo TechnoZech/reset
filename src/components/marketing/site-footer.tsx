@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { CAFE_NAME } from "@/lib/constants";
+import { CAFE_NAME, INSTAGRAM_HANDLE, INSTAGRAM_URL } from "@/lib/constants";
 
 export function SiteFooter() {
   return (
@@ -15,9 +15,20 @@ export function SiteFooter() {
           <Link href="/booking" className="hover:text-foreground">
             Book
           </Link>
+          <Link href="/#gallery" className="hover:text-foreground">
+            Gallery
+          </Link>
           <Link href="/#pricing" className="hover:text-foreground">
             Pricing
           </Link>
+          <a
+            href={INSTAGRAM_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-foreground"
+          >
+            {INSTAGRAM_HANDLE}
+          </a>
           <Link href="/admin/login" className="hover:text-foreground">
             Staff login
           </Link>

@@ -44,7 +44,7 @@ const defaults: ScreenForm = {
   name: "",
   console_type: "PS5",
   display_name: "",
-  hourly_rate: 200,
+  hourly_rate: 89,
   status: "available",
   is_active: true,
 };

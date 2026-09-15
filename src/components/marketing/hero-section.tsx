@@ -23,8 +23,21 @@ export function HeroSection() {
         }}
       />
 
+      <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute top-1/2 right-[-12%] h-[440px] w-[440px] -translate-y-1/2 sm:right-[-4%] md:right-[2%] lg:right-[8%]">
+          <div className="hero-logo-ring absolute inset-0 rounded-full border border-primary/12" />
+          <div className="absolute inset-10 rounded-full border border-white/5" />
+          <img
+            src="/usa-gaming-logo.jpg"
+            alt=""
+            className="hero-logo-mark absolute inset-8 size-[calc(100%-4rem)] rounded-full object-cover"
+          />
+        </div>
+      </div>
+
       <div className="relative mx-auto flex min-h-[88vh] max-w-6xl flex-col justify-center px-4 py-20 sm:px-6">
         <div className="max-w-3xl animate-in fade-in slide-in-from-bottom-4 duration-700">
+        
           <p className="mb-4 inline-flex items-center gap-2 text-xs font-medium uppercase tracking-[0.2em] text-primary">
             <Gamepad2 className="size-3.5" />
             PlayStation Gaming Cafe
