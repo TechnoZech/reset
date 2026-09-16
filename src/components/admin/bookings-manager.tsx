@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { useDebouncedRefresh } from "@/hooks/use-debounced-refresh";
 import { toast } from "sonner";
 import {
   CalendarClock,
@@ -63,6 +64,7 @@ export function BookingsManager({
   screens: Screen[];
 }) {
   const router = useRouter();
+  const refresh = useDebouncedRefresh();
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<string>("all");
   const [pending, startTransition] = useTransition();
@@ -79,13 +81,13 @@ export function BookingsManager({
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "bookings" },
-        () => router.refresh()
+        () => refresh()
       )
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [router]);
+  }, [refresh]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();

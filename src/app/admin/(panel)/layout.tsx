@@ -1,6 +1,20 @@
+import { Suspense } from "react";
 import { requireAdmin } from "@/lib/auth";
 import { AdminSidebar } from "@/components/admin/admin-sidebar";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { UserRole } from "@/lib/types/database";
+
+function AdminPageFallback() {
+  return (
+    <div className="space-y-6">
+      <div className="space-y-2">
+        <Skeleton className="h-3 w-20" />
+        <Skeleton className="h-9 w-48" />
+      </div>
+      <Skeleton className="h-64 rounded-xl" />
+    </div>
+  );
+}
 
 export default async function AdminDashboardLayout({
   children,
@@ -16,7 +30,9 @@ export default async function AdminDashboardLayout({
         name={profile.full_name || profile.email}
       />
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex-1 p-4 sm:p-6 lg:p-8">{children}</div>
+        <div className="flex-1 p-4 sm:p-6 lg:p-8">
+          <Suspense fallback={<AdminPageFallback />}>{children}</Suspense>
+        </div>
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
 import { requireAdmin } from "@/lib/auth";
-import { createClient } from "@/lib/supabase/server";
+import { getCachedGames } from "@/lib/data/admin-cache";
 import { GamesManager } from "@/components/admin/games-manager";
 import type { Game } from "@/lib/types/database";
 
@@ -12,10 +12,7 @@ export default async function GamesPage() {
   let loadError: string | null = null;
 
   try {
-    const supabase = await createClient();
-    const { data, error } = await supabase.from("games").select("*").order("name");
-    if (error) throw error;
-    games = (data ?? []) as Game[];
+    games = await getCachedGames();
   } catch (e) {
     loadError = e instanceof Error ? e.message : "Failed to load games";
   }

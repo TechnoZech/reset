@@ -1,7 +1,8 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 import { requireAdmin } from "@/lib/auth";
+import { CACHE_TAGS } from "@/lib/cache-tags";
 import { createClient } from "@/lib/supabase/server";
 import {
   cafeSettingsSchema,
@@ -35,6 +36,8 @@ export async function upsertScreenAction(
 
   revalidatePath("/admin/screens");
   revalidatePath("/admin/dashboard");
+  updateTag(CACHE_TAGS.screens);
+  updateTag(CACHE_TAGS.ops);
   return { success: true, message: id ? "Screen updated" : "Screen created" };
 }
 
@@ -64,6 +67,7 @@ export async function upsertGameAction(
   revalidatePath("/admin/games");
   revalidatePath("/");
   revalidatePath("/booking");
+  updateTag(CACHE_TAGS.games);
   return { success: true, message: id ? "Game updated" : "Game created" };
 }
 
@@ -79,9 +83,11 @@ export async function deleteGameAction(id: string): Promise<ActionResult> {
       .eq("id", id);
     if (softError) return { success: false, error: softError.message };
     revalidatePath("/admin/games");
+    updateTag(CACHE_TAGS.games);
     return { success: true, message: "Game disabled (in use)" };
   }
   revalidatePath("/admin/games");
+  updateTag(CACHE_TAGS.games);
   return { success: true, message: "Game deleted" };
 }
 
@@ -111,6 +117,7 @@ export async function upsertPricingRuleAction(
   revalidatePath("/admin/pricing");
   revalidatePath("/");
   revalidatePath("/booking");
+  updateTag(CACHE_TAGS.pricing);
   return { success: true, message: id ? "Pricing updated" : "Pricing created" };
 }
 
@@ -122,6 +129,7 @@ export async function deletePricingRuleAction(id: string): Promise<ActionResult>
   revalidatePath("/admin/pricing");
   revalidatePath("/");
   revalidatePath("/booking");
+  updateTag(CACHE_TAGS.pricing);
   return { success: true, message: "Pricing rule deleted" };
 }
 
@@ -174,6 +182,7 @@ export async function updateCafeSettingsAction(input: unknown): Promise<ActionRe
   revalidatePath("/admin/settings");
   revalidatePath("/");
   revalidatePath("/booking");
+  updateTag(CACHE_TAGS.settings);
   return { success: true, message: "Settings saved" };
 }
 

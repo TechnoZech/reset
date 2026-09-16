@@ -1,6 +1,6 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/admin";
 import {
@@ -14,6 +14,7 @@ import { addMinutesToTime } from "@/lib/utils";
 import { parseExtension, writeExtension } from "@/lib/extensions";
 import { guestBookingSchema, requestExtensionSchema } from "@/lib/validations";
 import { CAFE_NAME } from "@/lib/constants";
+import { CACHE_TAGS } from "@/lib/cache-tags";
 import type { ActionResult } from "@/lib/actions/auth";
 import type { ConsoleType, PricingRule } from "@/lib/types/database";
 
@@ -223,6 +224,8 @@ export async function createGuestBookingAction(
 
   revalidatePath("/admin/bookings");
   revalidatePath("/admin/dashboard");
+  updateTag(CACHE_TAGS.ops);
+  updateTag(CACHE_TAGS.charts);
 
   return { success: true, data: { bookingId: booking.id }, message: "Booking submitted" };
 }
@@ -435,6 +438,8 @@ export async function requestExtensionAction(
 
   revalidatePath("/admin/bookings");
   revalidatePath("/admin/dashboard");
+  updateTag(CACHE_TAGS.ops);
+  updateTag(CACHE_TAGS.charts);
 
   return {
     success: true,

@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { useDebouncedRefresh } from "@/hooks/use-debounced-refresh";
 import { toast } from "sonner";
 import {
   Pause,
@@ -52,6 +53,7 @@ export function ScreenGrid({
   customers: Customer[];
 }) {
   const router = useRouter();
+  const refresh = useDebouncedRefresh();
   const [screens, setScreens] = useState(initialScreens);
   const [startScreen, setStartScreen] = useState<ScreenWithSession | null>(null);
   const [viewScreen, setViewScreen] = useState<ScreenWithSession | null>(null);
@@ -76,10 +78,6 @@ export function ScreenGrid({
     window.addEventListener("pointerdown", unlock, { once: true });
     return () => window.removeEventListener("pointerdown", unlock);
   }, []);
-
-  const refresh = useCallback(() => {
-    router.refresh();
-  }, [router]);
 
   useEffect(() => {
     const supabase = createClient();

@@ -1,5 +1,5 @@
 import { requireAdmin } from "@/lib/auth";
-import { createClient } from "@/lib/supabase/server";
+import { getCachedSettings } from "@/lib/data/admin-cache";
 import { SettingsForm } from "@/components/admin/settings-form";
 import type { CafeSettings } from "@/lib/types/database";
 
@@ -12,14 +12,7 @@ export default async function SettingsPage() {
   let loadError: string | null = null;
 
   try {
-    const supabase = await createClient();
-    const { data, error } = await supabase
-      .from("cafe_settings")
-      .select("*")
-      .limit(1)
-      .maybeSingle();
-    if (error) throw error;
-    settings = (data as CafeSettings | null) ?? null;
+    settings = await getCachedSettings();
   } catch (e) {
     loadError = e instanceof Error ? e.message : "Failed to load settings";
   }

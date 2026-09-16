@@ -2,6 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth";
+import { revalidateAdminOps } from "@/lib/admin-revalidate";
+import { getCachedPricing } from "@/lib/data/admin-cache";
 import { createClient } from "@/lib/supabase/server";
 import {
   asMinutes,
@@ -21,34 +23,15 @@ import {
   startSessionSchema,
 } from "@/lib/validations";
 import type { ActionResult } from "@/lib/actions/auth";
-import type { ConsoleType, PricingRule } from "@/lib/types/database";
+import type { ConsoleType } from "@/lib/types/database";
 
 function revalidateOps() {
-  revalidatePath("/admin/dashboard");
-  revalidatePath("/admin/screens");
-  revalidatePath("/admin/bookings");
-  revalidatePath("/admin/earnings");
-  revalidatePath("/admin/customers");
+  revalidateAdminOps();
 }
 
 async function loadPricingRules() {
-  const supabase = await createClient();
-  const { data } = await supabase
-    .from("pricing_rules")
-    .select(
-      "console_type, duration_minutes, price, start_time, end_time, day_type, is_active"
-    )
-    .eq("is_active", true);
-  return (data ?? []) as Pick<
-    PricingRule,
-    | "console_type"
-    | "duration_minutes"
-    | "price"
-    | "start_time"
-    | "end_time"
-    | "day_type"
-    | "is_active"
-  >[];
+  const rules = await getCachedPricing();
+  return rules.filter((r) => r.is_active);
 }
 
 export async function startSessionAction(

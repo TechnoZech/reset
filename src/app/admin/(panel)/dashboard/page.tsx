@@ -1,5 +1,5 @@
+import { Suspense } from "react";
 import { requireAdmin } from "@/lib/auth";
-import { createClient } from "@/lib/supabase/server";
 import {
   getBookingsSeries,
   getDashboardStats,
@@ -8,6 +8,7 @@ import {
   getScreensLive,
   getTopGames,
 } from "@/lib/data/dashboard";
+import { getCachedActiveGames, getCachedWalkinCustomers } from "@/lib/data/admin-cache";
 import { formatCurrency, formatHours } from "@/lib/utils";
 import { ScreenGrid } from "@/components/admin/screen-grid";
 import {
@@ -15,47 +16,42 @@ import {
   RevenueChart,
   UtilizationChart,
 } from "@/components/admin/charts";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { Customer, Game, ScreenWithSession } from "@/lib/types/database";
 
 export const metadata = { title: "Dashboard" };
 
-export default async function AdminDashboardPage() {
-  await requireAdmin("dashboard");
+function DashboardSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+        {Array.from({ length: 7 }).map((_, i) => (
+          <Skeleton key={i} className="h-24 rounded-xl" />
+        ))}
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <Skeleton key={i} className="h-48 rounded-xl" />
+        ))}
+      </div>
+    </div>
+  );
+}
 
+async function DashboardLive() {
   let stats;
   let screens: ScreenWithSession[] = [];
-  let revenueSeries: { date: string; revenue: number }[] = [];
-  let bookingsSeries: { date: string; bookings: number }[] = [];
-  let topGames: { name: string; count: number }[] = [];
-  let utilization: { name: string; hours: number }[] = [];
   let games: Game[] = [];
   let customers: Customer[] = [];
   let loadError: string | null = null;
 
   try {
-    const supabase = await createClient();
-    [
-      stats,
-      screens,
-      revenueSeries,
-      bookingsSeries,
-      topGames,
-      utilization,
-    ] = await Promise.all([
+    [stats, screens, games, customers] = await Promise.all([
       getDashboardStats(),
       getScreensLive(),
-      getRevenueSeries(14),
-      getBookingsSeries(14),
-      getTopGames(),
-      getScreenUtilization(),
+      getCachedActiveGames(),
+      getCachedWalkinCustomers(),
     ]);
-
-    const [gamesRes, customersRes] = await Promise.all([
-      supabase.from("games").select("*").eq("is_active", true).order("name"),
-      supabase.from("customers").select("*").order("name").limit(200),
-    ]);
-    games = (gamesRes.data ?? []) as Game[];
-    customers = (customersRes.data ?? []) as Customer[];
   } catch (e) {
     loadError = e instanceof Error ? e.message : "Failed to load dashboard";
     stats = {
@@ -82,14 +78,7 @@ export default async function AdminDashboardPage() {
   ];
 
   return (
-    <div className="space-y-8">
-      <div>
-        <p className="text-xs font-medium tracking-[0.2em] text-muted-foreground uppercase">
-          Today
-        </p>
-        <h1 className="mt-1 font-display text-3xl font-bold tracking-tight">Dashboard</h1>
-      </div>
-
+    <>
       {loadError && (
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
           Connect Supabase to load live data. {loadError}
@@ -118,39 +107,6 @@ export default async function AdminDashboardPage() {
           customers={customers}
         />
       </section>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <div className="rounded-xl border border-border bg-card p-5">
-          <h3 className="mb-4 text-sm font-medium">Revenue (14 days)</h3>
-          <RevenueChart data={revenueSeries} />
-        </div>
-        <div className="rounded-xl border border-border bg-card p-5">
-          <h3 className="mb-4 text-sm font-medium">Bookings (14 days)</h3>
-          <BookingsChart data={bookingsSeries} />
-        </div>
-        <div className="rounded-xl border border-border bg-card p-5">
-          <h3 className="mb-4 text-sm font-medium">Top games</h3>
-          {topGames.length === 0 ? (
-            <p className="py-10 text-center text-sm text-muted-foreground">No session data yet</p>
-          ) : (
-            <ul className="space-y-3">
-              {topGames.map((g, i) => (
-                <li key={g.name} className="flex items-center justify-between text-sm">
-                  <span>
-                    <span className="mr-2 text-muted-foreground">{i + 1}.</span>
-                    {g.name}
-                  </span>
-                  <span className="text-muted-foreground">{g.count} sessions</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-        <div className="rounded-xl border border-border bg-card p-5">
-          <h3 className="mb-4 text-sm font-medium">Screen utilization (7 days)</h3>
-          <UtilizationChart data={utilization} />
-        </div>
-      </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-xl border border-border bg-card p-5">
@@ -200,6 +156,89 @@ export default async function AdminDashboardPage() {
           )}
         </div>
       </div>
+    </>
+  );
+}
+
+async function DashboardInsights() {
+  let revenueSeries: { date: string; revenue: number }[] = [];
+  let bookingsSeries: { date: string; bookings: number }[] = [];
+  let topGames: { name: string; count: number }[] = [];
+  let utilization: { name: string; hours: number }[] = [];
+
+  try {
+    [revenueSeries, bookingsSeries, topGames, utilization] = await Promise.all([
+      getRevenueSeries(14),
+      getBookingsSeries(14),
+      getTopGames(),
+      getScreenUtilization(),
+    ]);
+  } catch {
+    return null;
+  }
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-2">
+      <div className="rounded-xl border border-border bg-card p-5">
+        <h3 className="mb-4 text-sm font-medium">Revenue (14 days)</h3>
+        <RevenueChart data={revenueSeries} />
+      </div>
+      <div className="rounded-xl border border-border bg-card p-5">
+        <h3 className="mb-4 text-sm font-medium">Bookings (14 days)</h3>
+        <BookingsChart data={bookingsSeries} />
+      </div>
+      <div className="rounded-xl border border-border bg-card p-5">
+        <h3 className="mb-4 text-sm font-medium">Top games</h3>
+        {topGames.length === 0 ? (
+          <p className="py-10 text-center text-sm text-muted-foreground">No session data yet</p>
+        ) : (
+          <ul className="space-y-3">
+            {topGames.map((g, i) => (
+              <li key={g.name} className="flex items-center justify-between text-sm">
+                <span>
+                  <span className="mr-2 text-muted-foreground">{i + 1}.</span>
+                  {g.name}
+                </span>
+                <span className="text-muted-foreground">{g.count} sessions</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <div className="rounded-xl border border-border bg-card p-5">
+        <h3 className="mb-4 text-sm font-medium">Screen utilization (7 days)</h3>
+        <UtilizationChart data={utilization} />
+      </div>
+    </div>
+  );
+}
+
+export default async function AdminDashboardPage() {
+  await requireAdmin("dashboard");
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <p className="text-xs font-medium tracking-[0.2em] text-muted-foreground uppercase">
+          Today
+        </p>
+        <h1 className="mt-1 font-display text-3xl font-bold tracking-tight">Dashboard</h1>
+      </div>
+
+      <Suspense fallback={<DashboardSkeleton />}>
+        <DashboardLive />
+      </Suspense>
+      <Suspense
+        fallback={
+          <div className="grid gap-4 lg:grid-cols-2">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} className="h-64 rounded-xl" />
+            ))}
+          </div>
+        }
+      >
+        <DashboardInsights />
+      </Suspense>
     </div>
   );
 }

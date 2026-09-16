@@ -1,4 +1,5 @@
 import { requireAdmin } from "@/lib/auth";
+import { getCachedScreens } from "@/lib/data/admin-cache";
 import { createClient } from "@/lib/supabase/server";
 import { toDateString } from "@/lib/utils";
 import { BookingsManager } from "@/components/admin/bookings-manager";
@@ -17,7 +18,7 @@ export default async function BookingsPage() {
     const supabase = await createClient();
     const today = toDateString(new Date());
 
-    const [bookingsRes, screensRes] = await Promise.all([
+    const [bookingsRes, cachedScreens] = await Promise.all([
       supabase
         .from("bookings")
         .select(
@@ -25,14 +26,13 @@ export default async function BookingsPage() {
         )
         .gte("booking_date", today)
         .order("created_at", { ascending: false }),
-      supabase.from("screens").select("*").order("name"),
+      getCachedScreens(),
     ]);
 
     if (bookingsRes.error) throw bookingsRes.error;
-    if (screensRes.error) throw screensRes.error;
 
     bookings = (bookingsRes.data ?? []) as unknown as BookingWithRelations[];
-    screens = (screensRes.data ?? []) as Screen[];
+    screens = cachedScreens;
   } catch (e) {
     loadError = e instanceof Error ? e.message : "Failed to load bookings";
   }

@@ -1,5 +1,5 @@
 import { requireAdmin } from "@/lib/auth";
-import { createClient } from "@/lib/supabase/server";
+import { getCachedPricing } from "@/lib/data/admin-cache";
 import { PricingManager } from "@/components/admin/pricing-manager";
 import type { PricingRule } from "@/lib/types/database";
 
@@ -12,14 +12,7 @@ export default async function PricingPage() {
   let loadError: string | null = null;
 
   try {
-    const supabase = await createClient();
-    const { data, error } = await supabase
-      .from("pricing_rules")
-      .select("*")
-      .order("console_type")
-      .order("duration_minutes");
-    if (error) throw error;
-    rules = (data ?? []) as PricingRule[];
+    rules = await getCachedPricing();
   } catch (e) {
     loadError = e instanceof Error ? e.message : "Failed to load pricing";
   }

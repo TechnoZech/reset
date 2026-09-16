@@ -1,4 +1,7 @@
+import { unstable_cache } from "next/cache";
+import { CACHE_TAGS } from "@/lib/cache-tags";
 import { createClient } from "@/lib/supabase/server";
+import { createCacheClient } from "@/lib/supabase/cache-client";
 import { eachDateInclusive } from "@/lib/earnings-range";
 import { localDateString, localTimeString, toDateString } from "@/lib/utils";
 import type {
@@ -112,42 +115,37 @@ export async function getDashboardStats(date = new Date()) {
 
 export async function getScreensLive() {
   const supabase = await createClient();
-
-  const { data: screens } = await supabase
-    .from("screens")
-    .select("*")
-    .eq("is_active", true)
-    .order("name");
-
-  const { data: sessions } = await supabase
-    .from("sessions")
-    .select(
-      "*, customers(id, name, mobile), games(id, name), bookings(id, start_time, notes, duration_minutes, total_amount)"
-    )
-    .in("status", ["active", "paused"]);
-
   const today = toDateString(new Date());
   const nowTime = new Date().toTimeString().slice(0, 5);
 
-  const { data: upcoming } = await supabase
-    .from("bookings")
-    .select("*, customers(name, mobile), games(name)")
-    .eq("booking_date", today)
-    .in("status", ["pending", "confirmed"])
-    .gte("start_time", nowTime)
-    .order("start_time");
+  const [screensRes, sessionsRes, upcomingRes] = await Promise.all([
+    supabase.from("screens").select("*").eq("is_active", true).order("name"),
+    supabase
+      .from("sessions")
+      .select(
+        "*, customers(id, name, mobile), games(id, name), bookings(id, start_time, notes, duration_minutes, total_amount)"
+      )
+      .in("status", ["active", "paused"]),
+    supabase
+      .from("bookings")
+      .select("*, customers(name, mobile), games(name)")
+      .eq("booking_date", today)
+      .in("status", ["pending", "confirmed"])
+      .gte("start_time", nowTime)
+      .order("start_time"),
+  ]);
 
   const sessionByScreen = new Map(
-    (sessions ?? []).map((s) => [s.screen_id, s as unknown as SessionWithRelations])
+    (sessionsRes.data ?? []).map((s) => [s.screen_id, s as unknown as SessionWithRelations])
   );
   const bookingByScreen = new Map<string, BookingWithRelations>();
-  for (const b of upcoming ?? []) {
+  for (const b of upcomingRes.data ?? []) {
     if (b.screen_id && !bookingByScreen.has(b.screen_id)) {
       bookingByScreen.set(b.screen_id, b as unknown as BookingWithRelations);
     }
   }
 
-  return (screens ?? []).map((screen: Screen) => ({
+  return ((screensRes.data ?? []) as Screen[]).map((screen) => ({
     ...screen,
     active_session: sessionByScreen.get(screen.id) ?? null,
     upcoming_booking: bookingByScreen.get(screen.id) ?? null,
@@ -155,99 +153,126 @@ export async function getScreensLive() {
 }
 
 export async function getRevenueSeries(days = 14) {
-  const supabase = await createClient();
-  const from = startOfDay(new Date(Date.now() - (days - 1) * 86400000)).toISOString();
-
-  const { data } = await supabase
-    .from("payments")
-    .select("amount, paid_at, created_at")
-    .eq("payment_status", "paid")
-    .gte("paid_at", from);
-
-  const map = new Map<string, number>();
-  for (let i = 0; i < days; i++) {
-    const d = toDateString(new Date(Date.now() - (days - 1 - i) * 86400000));
-    map.set(d, 0);
-  }
-
-  for (const p of data ?? []) {
-    const key = toDateString(new Date(p.paid_at || p.created_at));
-    if (map.has(key)) map.set(key, (map.get(key) || 0) + Number(p.amount));
-  }
-
-  return Array.from(map.entries()).map(([date, revenue]) => ({ date, revenue }));
+  return getCachedRevenueSeries(toDateString(new Date()), days);
 }
+
+const getCachedRevenueSeries = unstable_cache(
+  async (_day: string, days: number) => {
+    const supabase = createCacheClient();
+    const from = startOfDay(new Date(Date.now() - (days - 1) * 86400000)).toISOString();
+    const { data } = await supabase
+      .from("payments")
+      .select("amount, paid_at, created_at")
+      .eq("payment_status", "paid")
+      .gte("paid_at", from);
+
+    const map = new Map<string, number>();
+    for (let i = 0; i < days; i++) {
+      const d = toDateString(new Date(Date.now() - (days - 1 - i) * 86400000));
+      map.set(d, 0);
+    }
+
+    for (const p of data ?? []) {
+      const key = toDateString(new Date(p.paid_at || p.created_at));
+      if (map.has(key)) map.set(key, (map.get(key) || 0) + Number(p.amount));
+    }
+
+    return Array.from(map.entries()).map(([date, revenue]) => ({ date, revenue }));
+  },
+  ["revenue-series-v1"],
+  { revalidate: 30, tags: [CACHE_TAGS.charts] }
+);
 
 export async function getBookingsSeries(days = 14) {
-  const supabase = await createClient();
-  const from = toDateString(new Date(Date.now() - (days - 1) * 86400000));
-
-  const { data } = await supabase
-    .from("bookings")
-    .select("booking_date, status")
-    .gte("booking_date", from)
-    .neq("status", "cancelled");
-
-  const map = new Map<string, number>();
-  for (let i = 0; i < days; i++) {
-    const d = toDateString(new Date(Date.now() - (days - 1 - i) * 86400000));
-    map.set(d, 0);
-  }
-
-  for (const b of data ?? []) {
-    if (map.has(b.booking_date)) {
-      map.set(b.booking_date, (map.get(b.booking_date) || 0) + 1);
-    }
-  }
-
-  return Array.from(map.entries()).map(([date, bookings]) => ({ date, bookings }));
+  return getCachedBookingsSeries(toDateString(new Date()), days);
 }
+
+const getCachedBookingsSeries = unstable_cache(
+  async (_day: string, days: number) => {
+    const supabase = createCacheClient();
+    const from = toDateString(new Date(Date.now() - (days - 1) * 86400000));
+    const { data } = await supabase
+      .from("bookings")
+      .select("booking_date, status")
+      .gte("booking_date", from)
+      .neq("status", "cancelled");
+
+    const map = new Map<string, number>();
+    for (let i = 0; i < days; i++) {
+      const d = toDateString(new Date(Date.now() - (days - 1 - i) * 86400000));
+      map.set(d, 0);
+    }
+
+    for (const b of data ?? []) {
+      if (map.has(b.booking_date)) {
+        map.set(b.booking_date, (map.get(b.booking_date) || 0) + 1);
+      }
+    }
+
+    return Array.from(map.entries()).map(([date, bookings]) => ({ date, bookings }));
+  },
+  ["bookings-series-v1"],
+  { revalidate: 30, tags: [CACHE_TAGS.charts] }
+);
 
 export async function getTopGames(limit = 5) {
-  const supabase = await createClient();
-  const { data } = await supabase
-    .from("sessions")
-    .select("game_id, games(name)")
-    .not("game_id", "is", null)
-    .limit(500);
-
-  const counts = new Map<string, { name: string; count: number }>();
-  for (const s of data ?? []) {
-    const id = s.game_id as string;
-    const name = (s.games as { name?: string } | null)?.name ?? "Unknown";
-    const prev = counts.get(id) || { name, count: 0 };
-    prev.count += 1;
-    counts.set(id, prev);
-  }
-
-  return Array.from(counts.values())
-    .sort((a, b) => b.count - a.count)
-    .slice(0, limit);
+  return getCachedTopGames(toDateString(new Date()), limit);
 }
+
+const getCachedTopGames = unstable_cache(
+  async (_day: string, limit: number) => {
+    const supabase = createCacheClient();
+    const from = startOfDay(new Date(Date.now() - 29 * 86400000)).toISOString();
+    const { data } = await supabase
+      .from("sessions")
+      .select("game_id, games(name)")
+      .not("game_id", "is", null)
+      .gte("started_at", from)
+      .limit(500);
+
+    const counts = new Map<string, { name: string; count: number }>();
+    for (const s of data ?? []) {
+      const id = s.game_id as string;
+      const name = (s.games as { name?: string } | null)?.name ?? "Unknown";
+      const prev = counts.get(id) || { name, count: 0 };
+      prev.count += 1;
+      counts.set(id, prev);
+    }
+
+    return Array.from(counts.values())
+      .sort((a, b) => b.count - a.count)
+      .slice(0, limit);
+  },
+  ["top-games-v1"],
+  { revalidate: 60, tags: [CACHE_TAGS.charts] }
+);
 
 export async function getScreenUtilization() {
-  const supabase = await createClient();
-  const { data: screens } = await supabase
-    .from("screens")
-    .select("id, name")
-    .eq("is_active", true);
-
-  const from = startOfDay(new Date(Date.now() - 6 * 86400000)).toISOString();
-  const { data: sessions } = await supabase
-    .from("sessions")
-    .select("screen_id, duration_minutes, started_at, ended_at, status, total_paused_ms, paused_at")
-    .gte("started_at", from);
-
-  return (screens ?? []).map((screen) => {
-    const mins = (sessions ?? [])
-      .filter((s) => s.screen_id === screen.id)
-      .reduce((sum, s) => {
-        if (s.duration_minutes) return sum + s.duration_minutes;
-        return sum;
-      }, 0);
-    return { name: screen.name, hours: Math.round((mins / 60) * 10) / 10 };
-  });
+  return getCachedScreenUtilization(toDateString(new Date()));
 }
+
+const getCachedScreenUtilization = unstable_cache(
+  async (_day: string) => {
+    const supabase = createCacheClient();
+    const from = startOfDay(new Date(Date.now() - 6 * 86400000)).toISOString();
+    const [screensRes, sessionsRes] = await Promise.all([
+      supabase.from("screens").select("id, name").eq("is_active", true),
+      supabase
+        .from("sessions")
+        .select("screen_id, duration_minutes")
+        .gte("started_at", from),
+    ]);
+
+    return (screensRes.data ?? []).map((screen) => {
+      const mins = (sessionsRes.data ?? [])
+        .filter((s) => s.screen_id === screen.id)
+        .reduce((sum, s) => sum + (s.duration_minutes || 0), 0);
+      return { name: screen.name, hours: Math.round((mins / 60) * 10) / 10 };
+    });
+  },
+  ["screen-util-v1"],
+  { revalidate: 60, tags: [CACHE_TAGS.charts, CACHE_TAGS.screens] }
+);
 
 export async function getEarningsAnalytics(from: string, to: string) {
   const supabase = await createClient();
@@ -267,7 +292,7 @@ export async function getEarningsAnalytics(from: string, to: string) {
       .gte("started_at", fromIso)
       .lte("started_at", toIso)
       .eq("status", "completed"),
-    supabase.from("customers").select("id, created_at"),
+    supabase.from("customers").select("id", { count: "exact", head: true }),
   ]);
 
   const revenue = (payments.data ?? []).reduce((s, p) => s + Number(p.amount), 0);
@@ -293,7 +318,7 @@ export async function getEarningsAnalytics(from: string, to: string) {
     averageSessionDuration: Math.round(avgDuration),
     uniqueCustomers: customerIds.size,
     repeatCustomers: repeat,
-    totalCustomers: customers.data?.length ?? 0,
+    totalCustomers: customers.count ?? 0,
   };
 }
 

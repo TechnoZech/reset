@@ -1,5 +1,5 @@
 import { requireAdmin } from "@/lib/auth";
-import { createClient } from "@/lib/supabase/server";
+import { getCachedScreens } from "@/lib/data/admin-cache";
 import { ScreensManager } from "@/components/admin/screens-manager";
 import type { Screen } from "@/lib/types/database";
 
@@ -12,13 +12,7 @@ export default async function ScreensPage() {
   let loadError: string | null = null;
 
   try {
-    const supabase = await createClient();
-    const { data, error } = await supabase
-      .from("screens")
-      .select("*")
-      .order("name");
-    if (error) throw error;
-    screens = (data ?? []) as Screen[];
+    screens = await getCachedScreens();
   } catch (e) {
     loadError = e instanceof Error ? e.message : "Failed to load screens";
   }

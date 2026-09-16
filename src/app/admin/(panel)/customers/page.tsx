@@ -1,24 +1,19 @@
+import { unstable_cache } from "next/cache";
 import { requireAdmin } from "@/lib/auth";
-import { createClient } from "@/lib/supabase/server";
+import { CACHE_TAGS } from "@/lib/cache-tags";
+import { createCacheClient } from "@/lib/supabase/cache-client";
 import {
   CustomersList,
   type CustomerRow,
 } from "@/components/admin/customers-list";
-import type { Booking, Customer, Session } from "@/lib/types/database";
 
 export const metadata = { title: "Customers" };
 
-export default async function CustomersPage() {
-  await requireAdmin("customers");
-
-  let customers: CustomerRow[] = [];
-  let loadError: string | null = null;
-
-  try {
-    const supabase = await createClient();
-    const [customersRes, bookingsRes, sessionsRes] = await Promise.all([
+const getCachedCustomerRows = unstable_cache(
+  async () => {
+    const supabase = createCacheClient();
+    const [customersRes, sessionsRes] = await Promise.all([
       supabase.from("customers").select("id, name, mobile").order("name"),
-      supabase.from("bookings").select("customer_id, booking_date, status"),
       supabase
         .from("sessions")
         .select("customer_id, started_at, ended_at, total_amount, status"),
@@ -26,39 +21,11 @@ export default async function CustomersPage() {
 
     if (customersRes.error) throw customersRes.error;
 
-    const customerRows = (customersRes.data ?? []) as Pick<
-      Customer,
-      "id" | "name" | "mobile"
-    >[];
-    const bookingRows = (bookingsRes.data ?? []) as Pick<
-      Booking,
-      "customer_id" | "booking_date" | "status"
-    >[];
-    const sessionRows = (sessionsRes.data ?? []) as Pick<
-      Session,
-      "customer_id" | "started_at" | "ended_at" | "total_amount" | "status"
-    >[];
-
-    const bookingByCustomer = new Map<
-      string,
-      { count: number; last: string | null }
-    >();
-    for (const b of bookingRows) {
-      if (b.status === "cancelled") continue;
-      const prev = bookingByCustomer.get(b.customer_id) ?? {
-        count: 0,
-        last: null,
-      };
-      prev.count += 1;
-      if (!prev.last || b.booking_date > prev.last) prev.last = b.booking_date;
-      bookingByCustomer.set(b.customer_id, prev);
-    }
-
     const sessionByCustomer = new Map<
       string,
       { count: number; spent: number; last: string | null }
     >();
-    for (const s of sessionRows) {
+    for (const s of sessionsRes.data ?? []) {
       const prev = sessionByCustomer.get(s.customer_id) ?? {
         count: 0,
         spent: 0,
@@ -71,26 +38,34 @@ export default async function CustomersPage() {
       sessionByCustomer.set(s.customer_id, prev);
     }
 
-    customers = customerRows
+    return ((customersRes.data ?? []) as { id: string; name: string; mobile: string }[])
       .filter((c) => c.mobile !== "0000000000")
       .map((c) => {
-        const b = bookingByCustomer.get(c.id);
         const s = sessionByCustomer.get(c.id);
-        const lastCandidates = [b?.last, s?.last].filter(Boolean) as string[];
-        lastCandidates.sort();
         return {
           id: c.id,
           name: c.name,
           mobile: c.mobile,
-          bookingsCount: b?.count ?? 0,
+          bookingsCount: s?.count ?? 0,
           sessionsCount: s?.count ?? 0,
           totalSpent: Math.round(s?.spent ?? 0),
-          lastVisit: lastCandidates.at(-1) ?? null,
-        };
+          lastVisit: s?.last ?? null,
+        } satisfies CustomerRow;
       })
-      .sort(
-        (a, b) => b.totalSpent - a.totalSpent || a.name.localeCompare(b.name)
-      );
+      .sort((a, b) => b.totalSpent - a.totalSpent || a.name.localeCompare(b.name));
+  },
+  ["admin-customer-rows-v1"],
+  { revalidate: 20, tags: [CACHE_TAGS.customers] }
+);
+
+export default async function CustomersPage() {
+  await requireAdmin("customers");
+
+  let customers: CustomerRow[] = [];
+  let loadError: string | null = null;
+
+  try {
+    customers = await getCachedCustomerRows();
   } catch (e) {
     loadError = e instanceof Error ? e.message : "Failed to load customers";
   }
