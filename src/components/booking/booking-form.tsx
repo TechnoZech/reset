@@ -11,7 +11,7 @@ import { guestBookingSchema, type GuestBookingInput } from "@/lib/validations";
 import { GameCover } from "@/components/game-cover";
 import { BOOKING_TRACKER_KEY, GAME_CATEGORIES, PLAYER_OPTIONS, durationLabel } from "@/lib/constants";
 import { applyPlayerMultiplier } from "@/lib/pricing";
-import { cn, formatCurrency, toDateString } from "@/lib/utils";
+import { cn, formatCurrency, localDateString, nextBookingSlot } from "@/lib/utils";
 import type { Game } from "@/lib/types/database";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -55,14 +55,15 @@ export function BookingForm({
       .sort((a, b) => a.duration_minutes - b.duration_minutes);
   }, [pricing]);
 
+  const nowSlot = nextBookingSlot();
   const form = useForm<GuestBookingInput>({
     resolver: zodResolver(guestBookingSchema),
     defaultValues: {
       name: "",
       mobile: "",
       players: 1,
-      booking_date: toDateString(new Date()),
-      start_time: "18:00",
+      booking_date: nowSlot.date,
+      start_time: nowSlot.time,
       duration_minutes:
         durations.find((d) => d.duration_minutes === 60)?.duration_minutes ??
         durations[0]?.duration_minutes ??
@@ -75,6 +76,12 @@ export function BookingForm({
   const players = form.watch("players");
   const duration = form.watch("duration_minutes");
   const selectedGame = form.watch("game_id");
+
+  useEffect(() => {
+    const slot = nextBookingSlot();
+    form.setValue("booking_date", slot.date);
+    form.setValue("start_time", slot.time);
+  }, [form]);
 
   useEffect(() => {
     if (!durations.length) return;
@@ -172,7 +179,12 @@ export function BookingForm({
         <div className="grid gap-4 sm:grid-cols-3">
           <div className="space-y-2">
             <Label htmlFor="booking_date">Date</Label>
-            <Input id="booking_date" type="date" {...form.register("booking_date")} />
+            <Input
+              id="booking_date"
+              type="date"
+              min={localDateString(new Date())}
+              {...form.register("booking_date")}
+            />
           </div>
           <div className="space-y-2">
             <Label htmlFor="start_time">Time</Label>

@@ -1,7 +1,7 @@
 import { requireAdmin } from "@/lib/auth";
 import { getCachedScreens } from "@/lib/data/admin-cache";
 import { createClient } from "@/lib/supabase/server";
-import { toDateString } from "@/lib/utils";
+import { localDateString } from "@/lib/utils";
 import { BookingsManager } from "@/components/admin/bookings-manager";
 import type { BookingWithRelations, Screen } from "@/lib/types/database";
 
@@ -16,13 +16,13 @@ export default async function BookingsPage() {
 
   try {
     const supabase = await createClient();
-    const today = toDateString(new Date());
+    const today = localDateString(new Date());
 
     const [bookingsRes, cachedScreens] = await Promise.all([
       supabase
         .from("bookings")
         .select(
-          "*, customers(id, name, mobile), screens(id, name, console_type), games(id, name)"
+          "*, customers(id, name, mobile), screens(id, name, console_type), games(id, name), sessions(id, status)"
         )
         .gte("booking_date", today)
         .order("created_at", { ascending: false }),

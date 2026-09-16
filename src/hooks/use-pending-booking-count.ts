@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
+import { localDateString } from "@/lib/utils";
 
 export function usePendingBookingCount() {
   const [count, setCount] = useState(0);
@@ -12,11 +13,18 @@ export function usePendingBookingCount() {
     const supabase = createClient();
 
     async function load() {
-      const { count: next } = await supabase
+      const today = localDateString(new Date());
+      const { data, count, error } = await supabase
         .from("bookings")
-        .select("id", { count: "exact", head: true })
-        .eq("status", "pending");
-      const value = next ?? 0;
+        .select("id", { count: "exact" })
+        .eq("status", "pending")
+        .gte("booking_date", today);
+      if (error) {
+        countRef.current = 0;
+        setCount(0);
+        return;
+      }
+      const value = count ?? data?.length ?? 0;
       countRef.current = value;
       setCount(value);
     }

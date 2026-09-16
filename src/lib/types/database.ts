@@ -159,6 +159,7 @@ export interface BookingWithRelations extends Booking {
   customers: Customer | null;
   screens: Screen | null;
   games: Game | null;
+  sessions?: Pick<Session, "id" | "status">[] | null;
 }
 
 export interface SessionWithRelations extends Session {

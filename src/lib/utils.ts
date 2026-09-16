@@ -84,6 +84,20 @@ export function localTimeString(date: Date | string) {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
+/** Next booking slot in the cafe's local clock, rounded up to `stepMinutes`. */
+export function nextBookingSlot(from = new Date(), stepMinutes = 5) {
+  const d = new Date(from);
+  d.setSeconds(0, 0);
+  const remainder = d.getMinutes() % stepMinutes;
+  if (remainder !== 0) {
+    d.setMinutes(d.getMinutes() + (stepMinutes - remainder));
+  }
+  return {
+    date: localDateString(d),
+    time: localTimeString(d),
+  };
+}
+
 export function timeToMinutes(time: string) {
   const [h, m] = time.split(":").map(Number);
   return h * 60 + m;

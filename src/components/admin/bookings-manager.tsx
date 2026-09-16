@@ -83,6 +83,11 @@ export function BookingsManager({
         { event: "*", schema: "public", table: "bookings" },
         () => refresh()
       )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "sessions" },
+        () => refresh()
+      )
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
@@ -208,6 +213,10 @@ export function BookingsManager({
           <ul className="space-y-3">
           {filtered.map((b) => {
             const actionable = ["pending", "confirmed"].includes(b.status);
+            const liveSession = (b.sessions ?? []).find((s) =>
+              ["active", "paused"].includes(s.status)
+            );
+            const canStart = actionable && !liveSession && Boolean(b.screen_id);
             const extension = parseExtension(b.notes);
             const isNew =
               b.status === "pending" &&
@@ -227,6 +236,11 @@ export function BookingsManager({
                       <Badge variant={statusVariant[b.status]}>
                         {b.status.replace("_", " ")}
                       </Badge>
+                      {liveSession ? (
+                        <Badge>
+                          {liveSession.status === "paused" ? "Paused" : "In session"}
+                        </Badge>
+                      ) : null}
                     </div>
                     <p className="text-sm text-muted-foreground">
                       {b.customers?.mobile} · {b.players} player
@@ -310,17 +324,19 @@ export function BookingsManager({
                         Confirm
                       </Button>
                     )}
+                    {canStart && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={pending}
+                        onClick={() => startSession(b.id)}
+                      >
+                        <Play className="size-3.5" />
+                        Start
+                      </Button>
+                    )}
                     {actionable && (
                       <>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={pending || !b.screen_id}
-                          onClick={() => startSession(b.id)}
-                        >
-                          <Play className="size-3.5" />
-                          Start
-                        </Button>
                         <Button
                           size="sm"
                           variant="outline"
