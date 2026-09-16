@@ -16,7 +16,34 @@ function context() {
 export function unlockSessionAudio() {
   const ctx = context();
   if (!ctx) return;
-  void ctx.resume();
+
+  void ctx.resume().then(() => {
+    if (ctx.state !== "running") return;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    gain.gain.value = 0.0001;
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.04);
+  });
+}
+
+/** Keep the overtime chime ready without a dedicated enable button. */
+export function armSessionAudio() {
+  if (typeof window === "undefined") return;
+  unlockSessionAudio();
+
+  const unlock = () => unlockSessionAudio();
+  window.addEventListener("pointerdown", unlock, { capture: true });
+  window.addEventListener("touchstart", unlock, { capture: true });
+  window.addEventListener("keydown", unlock, { capture: true });
+
+  return () => {
+    window.removeEventListener("pointerdown", unlock, { capture: true });
+    window.removeEventListener("touchstart", unlock, { capture: true });
+    window.removeEventListener("keydown", unlock, { capture: true });
+  };
 }
 
 function tone(

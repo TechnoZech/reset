@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { DURATION_OPTIONS, GAME_CATEGORIES, PLAYER_OPTIONS } from "@/lib/constants";
+import {
+  DURATION_OPTIONS,
+  GAME_CATEGORIES,
+  PLAYER_OPTIONS,
+} from "@/lib/constants";
 import type { GameCategory } from "@/lib/types/database";
 
 export const loginSchema = z.object({
@@ -17,11 +21,7 @@ export const guestBookingSchema = z.object({
   }),
   booking_date: z.string().min(1, "Select a date"),
   start_time: z.string().min(1, "Select a time"),
-  duration_minutes: z.coerce
-    .number()
-    .refine((n) => (DURATION_OPTIONS as readonly number[]).includes(n), {
-      message: "Select a valid duration",
-    }),
+  duration_minutes: z.coerce.number().int().positive(),
   game_id: z.string().uuid("Select a game"),
   notes: z.string().max(500).optional(),
 });
@@ -41,6 +41,7 @@ export const startSessionSchema = z.object({
     .number()
     .refine((n) => (DURATION_OPTIONS as readonly number[]).includes(n)),
   payment_method: z.enum(["cash", "upi", "card", "online"]),
+  booking_id: z.string().uuid().optional(),
 });
 
 export const endSessionSchema = z.object({

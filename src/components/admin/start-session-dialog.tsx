@@ -9,7 +9,7 @@ import { startSessionAction } from "@/lib/actions/sessions";
 import { unlockSessionAudio } from "@/lib/session-sounds";
 import { startSessionSchema, type StartSessionInput } from "@/lib/validations";
 import { GameCover } from "@/components/game-cover";
-import { DURATION_OPTIONS, PLAYER_OPTIONS } from "@/lib/constants";
+import { DURATION_OPTIONS, PLAYER_OPTIONS, durationLabel } from "@/lib/constants";
 import type { Customer, Game } from "@/lib/types/database";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -246,7 +246,7 @@ export function StartSessionDialog({
                 <SelectContent>
                   {DURATION_OPTIONS.map((d) => (
                     <SelectItem key={d} value={String(d)}>
-                      {d} minutes
+                      {d === 1 ? "1 minute (test)" : durationLabel(d)}
                     </SelectItem>
                   ))}
                 </SelectContent>

@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { eachDateInclusive } from "@/lib/earnings-range";
 import { toDateString } from "@/lib/utils";
 import type {
   BookingWithRelations,
@@ -293,5 +294,136 @@ export async function getEarningsAnalytics(from: string, to: string) {
     uniqueCustomers: customerIds.size,
     repeatCustomers: repeat,
     totalCustomers: customers.data?.length ?? 0,
+  };
+}
+
+function relationName(rel: unknown) {
+  if (!rel) return "";
+  if (Array.isArray(rel)) return (rel[0] as { name?: string } | undefined)?.name ?? "";
+  return (rel as { name?: string }).name ?? "";
+}
+
+function relationField(rel: unknown, field: string) {
+  if (!rel) return "";
+  const obj = Array.isArray(rel) ? rel[0] : rel;
+  return String((obj as Record<string, unknown> | undefined)?.[field] ?? "");
+}
+
+export async function getEarningsExportData(from: string, to: string) {
+  const supabase = await createClient();
+  const fromIso = startOfDay(new Date(from)).toISOString();
+  const toIso = endOfDay(new Date(to)).toISOString();
+  const dates = eachDateInclusive(from, to);
+
+  const [paymentsRes, sessionsRes, bookingsRes, screensRes] = await Promise.all([
+    supabase
+      .from("payments")
+      .select(
+        "amount, payment_method, payment_status, paid_at, created_at, session_id, booking_id"
+      )
+      .eq("payment_status", "paid")
+      .gte("paid_at", fromIso)
+      .lte("paid_at", toIso)
+      .order("paid_at")
+      .limit(5000),
+    supabase
+      .from("sessions")
+      .select(
+        "id, screen_id, started_at, ended_at, duration_minutes, players, status, total_amount, rate, customers(name, mobile), screens(name), games(name)"
+      )
+      .gte("started_at", fromIso)
+      .lte("started_at", toIso)
+      .order("started_at")
+      .limit(5000),
+    supabase
+      .from("bookings")
+      .select(
+        "booking_date, start_time, duration_minutes, players, status, total_amount, customers(name, mobile), games(name), screens(name)"
+      )
+      .gte("booking_date", from)
+      .lte("booking_date", to)
+      .order("booking_date")
+      .limit(5000),
+    supabase.from("screens").select("id, name").eq("is_active", true),
+  ]);
+
+  const payments = paymentsRes.data ?? [];
+  const sessions = sessionsRes.data ?? [];
+  const bookings = bookingsRes.data ?? [];
+  const screens = screensRes.data ?? [];
+
+  const analytics = await getEarningsAnalytics(from, to);
+
+  const revenueByDate = new Map(dates.map((d) => [d, 0]));
+  for (const p of payments) {
+    const key = toDateString(new Date(p.paid_at || p.created_at));
+    if (revenueByDate.has(key)) {
+      revenueByDate.set(key, (revenueByDate.get(key) || 0) + Number(p.amount));
+    }
+  }
+
+  const bookingsByDate = new Map(dates.map((d) => [d, 0]));
+  for (const b of bookings) {
+    if (b.status === "cancelled") continue;
+    if (bookingsByDate.has(b.booking_date)) {
+      bookingsByDate.set(b.booking_date, (bookingsByDate.get(b.booking_date) || 0) + 1);
+    }
+  }
+
+  const gameCounts = new Map<string, number>();
+  for (const s of sessions) {
+    const name = relationName(s.games) || "Unknown";
+    gameCounts.set(name, (gameCounts.get(name) || 0) + 1);
+  }
+
+  const screenHours = screens.map((screen) => {
+    const mins = sessions
+      .filter((s) => s.screen_id === screen.id)
+      .reduce((sum, s) => sum + (s.duration_minutes || 0), 0);
+    return { name: screen.name, hours: Math.round((mins / 60) * 10) / 10 };
+  });
+
+  return {
+    analytics,
+    daily: dates.map((date) => ({
+      date,
+      revenue: revenueByDate.get(date) || 0,
+      bookings: bookingsByDate.get(date) || 0,
+    })),
+    sessions: sessions.map((s) => ({
+      started: s.started_at,
+      ended: s.ended_at,
+      status: s.status,
+      duration: s.duration_minutes,
+      players: s.players,
+      amount: s.total_amount,
+      rate: s.rate,
+      customer: relationField(s.customers, "name"),
+      mobile: relationField(s.customers, "mobile"),
+      screen: relationName(s.screens),
+      game: relationName(s.games),
+    })),
+    payments: payments.map((p) => ({
+      paidAt: p.paid_at || p.created_at,
+      amount: Number(p.amount),
+      method: p.payment_method,
+      status: p.payment_status,
+    })),
+    bookings: bookings.map((b) => ({
+      date: b.booking_date,
+      time: String(b.start_time).slice(0, 5),
+      duration: b.duration_minutes,
+      players: b.players,
+      status: b.status,
+      amount: Number(b.total_amount),
+      customer: relationField(b.customers, "name"),
+      mobile: relationField(b.customers, "mobile"),
+      game: relationName(b.games),
+      screen: relationName(b.screens),
+    })),
+    games: Array.from(gameCounts.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count),
+    screens: screenHours,
   };
 }

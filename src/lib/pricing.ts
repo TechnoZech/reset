@@ -1,11 +1,5 @@
-import { PUBLIC_PRICING } from "@/lib/constants";
 import type { ConsoleType, DayType, PricingRule } from "@/lib/types/database";
 import { isWeekend, timeToMinutes } from "@/lib/utils";
-
-function publicMenuPrice(consoleType: ConsoleType, durationMinutes: number) {
-  if (consoleType !== "PS5") return null;
-  return PUBLIC_PRICING.find((tier) => tier.duration_minutes === durationMinutes)?.price ?? null;
-}
 
 export interface PriceQuoteInput {
   consoleType: ConsoleType;
@@ -75,9 +69,7 @@ export function calculatePrice(input: PriceQuoteInput): number {
       })
       .sort((a, b) => b.score - a.score || Number(a.r.price) - Number(b.r.price));
 
-    const menuPrice = publicMenuPrice(input.consoleType, input.durationMinutes);
-    const base = menuPrice ?? Number(scored[0].r.price);
-    return applyPlayerMultiplier(base, input.players);
+    return applyPlayerMultiplier(Number(scored[0].r.price), input.players);
   }
 
   // Pro-rate from nearest longer rule or hourly fallback
@@ -89,9 +81,8 @@ export function calculatePrice(input: PriceQuoteInput): number {
   );
 
   const hourly =
-    publicMenuPrice(input.consoleType, 60) ??
-    sameConsole.find((r) => r.duration_minutes === 60)?.price ??
-    input.fallbackHourlyRate ??
+    Number(sameConsole.find((r) => r.duration_minutes === 60)?.price) ||
+    input.fallbackHourlyRate ||
     89;
 
   return applyPlayerMultiplier(
@@ -116,7 +107,13 @@ export function calculateSessionCharge(params: {
   players?: number;
 }) {
   const minutes = Math.max(1, Math.ceil(params.elapsedMs / 60000));
-  const billed = Math.ceil(minutes / 15) * 15;
+  const hasExactMinutes = params.rules.some(
+    (r) =>
+      r.is_active &&
+      r.console_type === params.consoleType &&
+      r.duration_minutes === minutes
+  );
+  const billed = hasExactMinutes ? minutes : Math.ceil(minutes / 15) * 15;
 
   // Try exact duration rule first; otherwise use pro-rated hourly
   const exact = calculatePrice({

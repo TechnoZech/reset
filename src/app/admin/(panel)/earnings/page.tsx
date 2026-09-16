@@ -14,38 +14,9 @@ import {
   UtilizationChart,
 } from "@/components/admin/charts";
 import { EarningsFilters } from "@/components/admin/earnings-filters";
+import { resolveEarningsRange } from "@/lib/earnings-range";
 
 export const metadata = { title: "Earnings" };
-
-function resolveRange(preset: string, fromParam?: string, toParam?: string) {
-  const today = new Date();
-  const todayStr = toDateString(today);
-
-  if (preset === "yesterday") {
-    const y = new Date(today);
-    y.setDate(y.getDate() - 1);
-    const s = toDateString(y);
-    return { from: s, to: s, days: 1 };
-  }
-  if (preset === "week") {
-    const from = new Date(today);
-    from.setDate(from.getDate() - 6);
-    return { from: toDateString(from), to: todayStr, days: 7 };
-  }
-  if (preset === "month") {
-    const from = new Date(today);
-    from.setDate(from.getDate() - 29);
-    return { from: toDateString(from), to: todayStr, days: 30 };
-  }
-  if (preset === "custom" && fromParam && toParam) {
-    const from = new Date(fromParam);
-    const to = new Date(toParam);
-    const days =
-      Math.max(1, Math.round((to.getTime() - from.getTime()) / 86400000) + 1);
-    return { from: fromParam, to: toParam, days };
-  }
-  return { from: todayStr, to: todayStr, days: 1 };
-}
 
 export default async function EarningsPage({
   searchParams,
@@ -55,7 +26,7 @@ export default async function EarningsPage({
   await requireAdmin("earnings");
   const sp = await searchParams;
   const preset = sp.preset || "today";
-  const range = resolveRange(preset, sp.from, sp.to);
+  const range = resolveEarningsRange(preset, sp.from, sp.to);
 
   let analytics = {
     revenue: 0,

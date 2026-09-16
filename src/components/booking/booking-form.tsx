@@ -1,17 +1,17 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
-import { Loader2 } from "lucide-react";
+import { Loader2, Search } from "lucide-react";
 import { createGuestBookingAction } from "@/lib/actions/bookings";
 import { guestBookingSchema, type GuestBookingInput } from "@/lib/validations";
 import { GameCover } from "@/components/game-cover";
-import { DURATION_OPTIONS, GAME_CATEGORIES, PLAYER_OPTIONS } from "@/lib/constants";
+import { BOOKING_TRACKER_KEY, GAME_CATEGORIES, PLAYER_OPTIONS, durationLabel } from "@/lib/constants";
 import { applyPlayerMultiplier } from "@/lib/pricing";
-import { formatCurrency, toDateString } from "@/lib/utils";
+import { cn, formatCurrency, toDateString } from "@/lib/utils";
 import type { Game } from "@/lib/types/database";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,8 +24,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
 
 type PricingItem = {
   duration_minutes: number;
@@ -44,6 +42,18 @@ export function BookingForm({
   const [category, setCategory] = useState<string>("all");
   const [localOnly, setLocalOnly] = useState(false);
   const [multiplayerOnly, setMultiplayerOnly] = useState(false);
+  const [gameQuery, setGameQuery] = useState("");
+
+  const durations = useMemo(() => {
+    const seen = new Set<number>();
+    return pricing
+      .filter((p) => {
+        if (seen.has(p.duration_minutes)) return false;
+        seen.add(p.duration_minutes);
+        return true;
+      })
+      .sort((a, b) => a.duration_minutes - b.duration_minutes);
+  }, [pricing]);
 
   const form = useForm<GuestBookingInput>({
     resolver: zodResolver(guestBookingSchema),
@@ -53,7 +63,10 @@ export function BookingForm({
       players: 1,
       booking_date: toDateString(new Date()),
       start_time: "18:00",
-      duration_minutes: 60,
+      duration_minutes:
+        durations.find((d) => d.duration_minutes === 60)?.duration_minutes ??
+        durations[0]?.duration_minutes ??
+        60,
       game_id: "",
       notes: "",
     },
@@ -63,15 +76,28 @@ export function BookingForm({
   const duration = form.watch("duration_minutes");
   const selectedGame = form.watch("game_id");
 
+  useEffect(() => {
+    if (!durations.length) return;
+    if (!durations.some((d) => d.duration_minutes === duration)) {
+      form.setValue("duration_minutes", durations[0].duration_minutes);
+    }
+  }, [durations, duration, form]);
+
   const filteredGames = useMemo(() => {
+    const q = gameQuery.trim().toLowerCase();
     return games.filter((g) => {
       if (g.min_players > players || g.max_players < players) return false;
       if (category !== "all" && g.category !== category) return false;
       if (localOnly && !g.local_multiplayer) return false;
       if (multiplayerOnly && !g.multiplayer) return false;
+      if (q && !g.name.toLowerCase().includes(q) && !g.category.toLowerCase().includes(q)) {
+        return false;
+      }
       return true;
     });
-  }, [games, players, category, localOnly, multiplayerOnly]);
+  }, [games, players, category, localOnly, multiplayerOnly, gameQuery]);
+
+  const selectedGameData = games.find((g) => g.id === selectedGame);
 
   const basePrice =
     pricing.find((p) => p.duration_minutes === duration)?.price ??
@@ -85,14 +111,23 @@ export function BookingForm({
         toast.error(result.error);
         return;
       }
-      toast.success("Booking submitted");
-      router.push(`/booking/success?id=${result.data?.bookingId}`);
+      toast.success("Booking submitted — keep this page open for your timer");
+      if (result.data?.bookingId) {
+        try {
+          window.localStorage.setItem(BOOKING_TRACKER_KEY, result.data.bookingId);
+        } catch {
+          /* ignore */
+        }
+        router.push(`/booking/success?id=${result.data.bookingId}`);
+        return;
+      }
+      router.push("/booking/success");
     });
   });
 
   return (
     <form onSubmit={onSubmit} className="grid gap-8 lg:grid-cols-[1.2fr_0.8fr]">
-      <div className="space-y-6 rounded-2xl border border-border bg-card p-6 sm:p-8">
+      <div className="space-y-5 rounded-2xl border border-border bg-card p-4 sm:space-y-6 sm:p-8">
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor="name">Name</Label>
@@ -153,9 +188,9 @@ export function BookingForm({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {DURATION_OPTIONS.map((d) => (
-                  <SelectItem key={d} value={String(d)}>
-                    {d === 30 ? "30 minutes" : d === 60 ? "1 hour" : "2 hours"}
+                {durations.map((d) => (
+                  <SelectItem key={d.duration_minutes} value={String(d.duration_minutes)}>
+                    {durationLabel(d.duration_minutes)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -164,76 +199,102 @@ export function BookingForm({
         </div>
 
         <div className="space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center justify-between gap-2">
             <Label>Game</Label>
-            <div className="flex flex-wrap gap-2">
-              <Select value={category} onValueChange={setCategory}>
-                <SelectTrigger className="h-8 w-[140px]">
-                  <SelectValue placeholder="Category" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All categories</SelectItem>
-                  {GAME_CATEGORIES.map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {c}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button
+            <span className="text-xs text-muted-foreground">
+              {filteredGames.length} title{filteredGames.length === 1 ? "" : "s"}
+            </span>
+          </div>
+
+          {selectedGameData ? (
+            <div className="flex items-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-2 py-1.5">
+              <GameCover
+                name={selectedGameData.name}
+                imageUrl={selectedGameData.image_url}
+                className="size-8 shrink-0 rounded-md"
+              />
+              <p className="min-w-0 flex-1 truncate text-sm font-medium">
+                {selectedGameData.name}
+              </p>
+              <button
                 type="button"
-                size="sm"
-                variant={multiplayerOnly ? "default" : "outline"}
-                onClick={() => setMultiplayerOnly((v) => !v)}
+                className="text-xs text-muted-foreground hover:text-foreground"
+                onClick={() => form.setValue("game_id", "")}
               >
-                Multiplayer
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant={localOnly ? "default" : "outline"}
-                onClick={() => setLocalOnly((v) => !v)}
-              >
-                Local MP
-              </Button>
+                Change
+              </button>
             </div>
+          ) : null}
+
+          <div className="relative">
+            <Search className="pointer-events-none absolute top-2.5 left-2.5 size-4 text-muted-foreground" />
+            <Input
+              value={gameQuery}
+              onChange={(e) => setGameQuery(e.target.value)}
+              placeholder="Search games"
+              className="h-9 pl-8"
+            />
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Select value={category} onValueChange={setCategory}>
+              <SelectTrigger className="h-8 w-[130px]">
+                <SelectValue placeholder="Category" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All categories</SelectItem>
+                {GAME_CATEGORIES.map((c) => (
+                  <SelectItem key={c} value={c}>
+                    {c}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              type="button"
+              size="sm"
+              variant={multiplayerOnly ? "default" : "outline"}
+              onClick={() => setMultiplayerOnly((v) => !v)}
+            >
+              MP
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={localOnly ? "default" : "outline"}
+              onClick={() => setLocalOnly((v) => !v)}
+            >
+              Local
+            </Button>
           </div>
 
           {filteredGames.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+            <div className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
               No games available for {players} players
               {category !== "all" ? ` in ${category}` : ""}.
             </div>
           ) : (
-            <div className="grid max-h-80 gap-2 overflow-y-auto sm:grid-cols-2">
+            <div className="grid max-h-64 grid-cols-3 gap-1.5 overflow-y-auto overscroll-contain pr-0.5 sm:max-h-72 sm:grid-cols-4 md:grid-cols-5">
               {filteredGames.map((game) => (
                 <button
                   key={game.id}
                   type="button"
                   onClick={() => form.setValue("game_id", game.id, { shouldValidate: true })}
                   className={cn(
-                    "overflow-hidden rounded-lg border text-left transition-colors",
+                    "group relative overflow-hidden rounded-md border text-left transition-colors",
                     selectedGame === game.id
-                      ? "border-primary bg-primary/10"
+                      ? "border-primary ring-1 ring-primary"
                       : "border-border hover:border-primary/40"
                   )}
                 >
                   <GameCover
                     name={game.name}
                     imageUrl={game.image_url}
-                    className="h-24 w-full"
+                    className="aspect-square w-full"
                   />
-                  <div className="p-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <span className="font-medium">{game.name}</span>
-                      <Badge variant="secondary" className="text-[10px]">
-                        {game.category}
-                      </Badge>
-                    </div>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {game.min_players}–{game.max_players} players
-                    </p>
-                  </div>
+                  <span className="absolute inset-x-0 bottom-0 truncate bg-black/75 px-1 py-0.5 text-[10px] leading-tight text-white">
+                    {game.name}
+                  </span>
                 </button>
               ))}
             </div>

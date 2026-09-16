@@ -3,7 +3,6 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/admin";
-import { PUBLIC_PRICING } from "@/lib/constants";
 import { calculatePrice } from "@/lib/pricing";
 import { addMinutesToTime } from "@/lib/utils";
 import { guestBookingSchema } from "@/lib/validations";
@@ -41,12 +40,30 @@ export async function createGuestBookingAction(
   }
 
   // Server-side price — never trust client
-  const { data: rules } = await supabase
+  const { data: rawRules } = await supabase
     .from("pricing_rules")
     .select(
       "console_type, duration_minutes, price, start_time, end_time, day_type, is_active"
     )
     .eq("is_active", true);
+
+  const rules = (rawRules ?? []) as Pick<
+    PricingRule,
+    | "console_type"
+    | "duration_minutes"
+    | "price"
+    | "start_time"
+    | "end_time"
+    | "day_type"
+    | "is_active"
+  >[];
+
+  const allowedDurations = new Set(
+    rules.filter((r) => r.console_type === "PS5").map((r) => r.duration_minutes)
+  );
+  if (!allowedDurations.has(data.duration_minutes)) {
+    return { success: false, error: "Selected duration is not available" };
+  }
 
   const totalAmount = calculatePrice({
     consoleType: "PS5",
@@ -54,16 +71,7 @@ export async function createGuestBookingAction(
     date: data.booking_date,
     startTime: data.start_time,
     players: data.players,
-    rules: (rules ?? []) as Pick<
-      PricingRule,
-      | "console_type"
-      | "duration_minutes"
-      | "price"
-      | "start_time"
-      | "end_time"
-      | "day_type"
-      | "is_active"
-    >[],
+    rules,
   });
 
   const endTime = addMinutesToTime(data.start_time, data.duration_minutes);
@@ -159,26 +167,36 @@ export async function getPublicPricing(consoleType: ConsoleType = "PS5") {
   const supabase = await createClient();
   const { data } = await supabase
     .from("pricing_rules")
-    .select("id, name, console_type, duration_minutes, price, day_type, is_active")
+    .select(
+      "id, name, console_type, duration_minutes, price, day_type, is_active, start_time, end_time"
+    )
     .eq("is_active", true)
     .eq("console_type", consoleType)
-    .eq("day_type", "all")
-    .in("duration_minutes", [30, 60, 120])
     .order("duration_minutes");
 
   const rows = data ?? [];
-  return PUBLIC_PRICING.map((tier) => {
-    const match = rows.find((r) => r.duration_minutes === tier.duration_minutes);
-    return {
-      id: match?.id ?? String(tier.duration_minutes),
-      name: match?.name ?? `PS5 ${tier.label}`,
-      console_type: consoleType,
-      duration_minutes: tier.duration_minutes,
-      price: tier.price,
-      day_type: "all" as const,
-      is_active: true,
-    };
-  });
+  const byDuration = new Map<number, (typeof rows)[number]>();
+
+  const score = (r: (typeof rows)[number]) => {
+    let s = 0;
+    if (r.day_type === "all") s += 4;
+    if (!r.start_time && !r.end_time) s += 3;
+    return s;
+  };
+
+  const ranked = [...rows].sort(
+    (a, b) => score(b) - score(a) || Number(a.price) - Number(b.price)
+  );
+
+  for (const row of ranked) {
+    if (!byDuration.has(row.duration_minutes)) {
+      byDuration.set(row.duration_minutes, row);
+    }
+  }
+
+  return Array.from(byDuration.values()).sort(
+    (a, b) => a.duration_minutes - b.duration_minutes
+  );
 }
 
 export async function getPublicGames(players?: number) {
@@ -199,6 +217,43 @@ export async function getPublicGames(players?: number) {
   }
 
   return games;
+}
+
+const BOOKING_ID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export async function getPublicBookingLive(bookingId: string) {
+  if (!BOOKING_ID_RE.test(bookingId)) return null;
+
+  let db: Awaited<ReturnType<typeof createClient>>;
+  try {
+    db = createServiceClient() as unknown as Awaited<ReturnType<typeof createClient>>;
+  } catch {
+    db = await createClient();
+  }
+
+  const [bookingRes, sessionRes] = await Promise.all([
+    db
+      .from("bookings")
+      .select(
+        "id, booking_date, start_time, end_time, duration_minutes, players, status, total_amount, game_id, screen_id, games(name), screens(name)"
+      )
+      .eq("id", bookingId)
+      .maybeSingle(),
+    db
+      .from("sessions")
+      .select(
+        "id, status, started_at, ended_at, paused_at, total_paused_ms, duration_minutes, players"
+      )
+      .eq("booking_id", bookingId)
+      .in("status", ["active", "paused", "completed"])
+      .order("started_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
+
+  if (!bookingRes.data) return null;
+  return { booking: bookingRes.data, session: sessionRes.data };
 }
 
 export async function getCafeSettingsPublic() {

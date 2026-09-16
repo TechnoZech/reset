@@ -12,6 +12,8 @@ import {
 } from "@/lib/actions/bookings";
 import type { Game } from "@/lib/types/database";
 
+export const dynamic = "force-dynamic";
+
 async function safeGames(): Promise<Game[]> {
   try {
     return (await getPublicGames()) as Game[];

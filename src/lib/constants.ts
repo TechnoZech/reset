@@ -12,6 +12,8 @@ import type {
 
 export const CAFE_NAME = process.env.NEXT_PUBLIC_CAFE_NAME || "USA GAMING";
 
+export const BOOKING_TRACKER_KEY = "usa-gaming-booking-id";
+
 export const INSTAGRAM_URL = "https://www.instagram.com/usa_gaming_arena/";
 export const INSTAGRAM_HANDLE = "@usa_gaming_arena";
 
@@ -104,7 +106,20 @@ export const PAYMENT_STATUSES: PaymentStatus[] = [
 
 export const DAY_TYPES: DayType[] = ["weekday", "weekend", "all"];
 
-export const DURATION_OPTIONS = [30, 60, 120] as const;
+/** Staff/session durations, including a 1-minute option for timer testing. */
+export const DURATION_OPTIONS = [1, 30, 60, 120] as const;
+
+/** Public booking menu — no test durations. */
+export const PUBLIC_DURATION_OPTIONS = [30, 60, 120] as const;
+
+export function durationLabel(minutes: number) {
+  if (minutes === 1) return "1 minute";
+  if (minutes === 30) return "30 minutes";
+  if (minutes === 60) return "1 hour";
+  if (minutes === 120) return "2 hours";
+  if (minutes % 60 === 0) return `${minutes / 60} hours`;
+  return `${minutes} minutes`;
+}
 
 export const PLAYER_OPTIONS = [1, 2, 3, 4] as const;
 

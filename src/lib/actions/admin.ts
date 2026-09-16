@@ -120,6 +120,8 @@ export async function deletePricingRuleAction(id: string): Promise<ActionResult>
   const { error } = await supabase.from("pricing_rules").delete().eq("id", id);
   if (error) return { success: false, error: error.message };
   revalidatePath("/admin/pricing");
+  revalidatePath("/");
+  revalidatePath("/booking");
   return { success: true, message: "Pricing rule deleted" };
 }
 

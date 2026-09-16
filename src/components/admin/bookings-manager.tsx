@@ -16,7 +16,7 @@ import {
   startSessionFromBookingAction,
   updateBookingStatusAction,
 } from "@/lib/actions/sessions";
-import { BOOKING_STATUSES, DURATION_OPTIONS } from "@/lib/constants";
+import { BOOKING_STATUSES, DURATION_OPTIONS, durationLabel } from "@/lib/constants";
 import { unlockSessionAudio } from "@/lib/session-sounds";
 import type {
   BookingStatus,
@@ -307,7 +307,7 @@ export function BookingsManager({
                   <SelectContent>
                     {DURATION_OPTIONS.map((d) => (
                       <SelectItem key={d} value={String(d)}>
-                        {d} minutes
+                        {d === 1 ? "1 minute (test)" : durationLabel(d)}
                       </SelectItem>
                     ))}
                   </SelectContent>

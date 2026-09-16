@@ -11,7 +11,7 @@ import {
   upsertPricingRuleAction,
 } from "@/lib/actions/admin";
 import { pricingRuleSchema } from "@/lib/validations";
-import { CONSOLE_TYPES, DAY_TYPES, DURATION_OPTIONS } from "@/lib/constants";
+import { CONSOLE_TYPES, DAY_TYPES, DURATION_OPTIONS, durationLabel } from "@/lib/constants";
 import type { PricingRule } from "@/lib/types/database";
 import { formatCurrency, formatDuration, cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -294,7 +294,7 @@ export function PricingManager({ rules }: { rules: PricingRule[] }) {
                   <SelectContent>
                     {DURATION_OPTIONS.map((d) => (
                       <SelectItem key={d} value={String(d)}>
-                        {d} minutes
+                        {d === 1 ? "1 minute (test)" : durationLabel(d)}
                       </SelectItem>
                     ))}
                     <SelectItem value="180">180 minutes</SelectItem>

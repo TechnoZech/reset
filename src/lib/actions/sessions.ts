@@ -143,6 +143,7 @@ export async function startSessionAction(
       players: data.players,
       rate,
       duration_minutes: data.duration_minutes,
+      booking_id: data.booking_id ?? null,
       status: "active",
       started_at: new Date().toISOString(),
       total_paused_ms: 0,
@@ -167,6 +168,14 @@ export async function startSessionAction(
     payment_status: "paid",
     paid_at: new Date().toISOString(),
   });
+
+  if (data.booking_id) {
+    await supabase
+      .from("bookings")
+      .update({ status: "confirmed" })
+      .eq("id", data.booking_id)
+      .in("status", ["pending", "confirmed"]);
+  }
 
   revalidateOps();
   return { success: true, data: { sessionId: session.id }, message: "Session started" };
@@ -500,6 +509,17 @@ export async function startSessionFromBookingAction(
     return { success: false, error: "Booking cannot be started" };
   }
 
+  const { data: existingSession } = await supabase
+    .from("sessions")
+    .select("id")
+    .eq("booking_id", booking.id)
+    .in("status", ["active", "paused"])
+    .maybeSingle();
+
+  if (existingSession) {
+    return { success: false, error: "Session already running for this booking" };
+  }
+
   return startSessionAction({
     screen_id: booking.screen_id,
     customer_mode: "existing",
@@ -508,5 +528,6 @@ export async function startSessionFromBookingAction(
     game_id: booking.game_id,
     duration_minutes: booking.duration_minutes,
     payment_method: "cash",
+    booking_id: booking.id,
   });
 }
