@@ -255,7 +255,9 @@ export async function changeSessionGameAction(
   return { success: true, message: "Game updated" };
 }
 
-export async function endSessionAction(input: unknown): Promise<ActionResult<{ amount: number }>> {
+export async function endSessionAction(
+  input: unknown
+): Promise<ActionResult<{ amount: number; sessionId: string }>> {
   await requireAdmin("sessions");
   const parsed = endSessionSchema.safeParse(input);
   if (!parsed.success) {

@@ -392,7 +392,20 @@ export async function getEarningsExportData(from: string, to: string) {
   }
 
   const sessionBookingIds = new Set<string>();
-  const activity = sessions.map((s) => {
+  const activity: {
+    date: string;
+    time: string;
+    type: "Session" | "Booking";
+    customer: string;
+    mobile: string;
+    game: string;
+    screen: string;
+    players: number;
+    duration: number;
+    amount: number;
+    paymentMethod: string;
+    status: string;
+  }[] = sessions.map((s) => {
     if (s.booking_id) sessionBookingIds.add(s.booking_id);
     const pay = s.id ? paymentBySession.get(s.id) : undefined;
     const amount =
