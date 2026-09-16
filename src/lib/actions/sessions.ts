@@ -9,7 +9,6 @@ import {
   asMinutes,
   asPlayerCount,
   calculatePrice,
-  calculateSessionCharge,
   quoteExtendedPackage,
 } from "@/lib/pricing";
 import { addMinutesToTime, getSessionElapsedMs } from "@/lib/utils";
@@ -251,7 +250,7 @@ export async function endSessionAction(
   const { data: session } = await supabase
     .from("sessions")
     .select(
-      "id, status, screen_id, started_at, paused_at, total_paused_ms, booking_id, rate, players"
+      "id, status, screen_id, started_at, paused_at, total_paused_ms, booking_id, rate, duration_minutes, players"
     )
     .eq("id", parsed.data.session_id)
     .maybeSingle();
@@ -259,12 +258,6 @@ export async function endSessionAction(
   if (!session || !["active", "paused"].includes(session.status)) {
     return { success: false, error: "Session cannot be ended" };
   }
-
-  const { data: screen } = await supabase
-    .from("screens")
-    .select("console_type, hourly_rate")
-    .eq("id", session.screen_id)
-    .single();
 
   const endedAt = new Date();
   let totalPaused = session.total_paused_ms ?? 0;
@@ -278,67 +271,70 @@ export async function endSessionAction(
     totalPausedMs: totalPaused,
     nowMs: endedAt.getTime(),
   });
+  const elapsedMinutes = Math.max(1, Math.ceil(elapsedMs / 60000));
+  const amount = Math.round(Number(session.rate) || 0);
+  const method = parsed.data.payment_method ?? "upi";
 
-  const rules = await loadPricingRules();
-  const charge = calculateSessionCharge({
-    elapsedMs,
-    consoleType: (screen?.console_type as ConsoleType) ?? "PS5",
-    date: endedAt,
-    rules,
-    fallbackHourlyRate: Number(screen?.hourly_rate ?? 89),
-    players: session.players ?? 1,
-  });
-
-  const packageAmount = Math.round(Number(session.rate) || 0);
-  const amount = Math.max(packageAmount, charge.amount);
-
-  await supabase
+  const sessionUpdate = supabase
     .from("sessions")
     .update({
       status: "completed",
       ended_at: endedAt.toISOString(),
       paused_at: null,
       total_paused_ms: totalPaused,
-      duration_minutes: charge.minutes,
+      duration_minutes: elapsedMinutes,
       total_amount: amount,
     })
     .eq("id", session.id);
 
-  await supabase
+  const screenUpdate = supabase
     .from("screens")
     .update({ status: "available" })
     .eq("id", session.screen_id);
 
-  if (session.booking_id) {
-    await supabase
-      .from("bookings")
-      .update({ status: "completed", total_amount: amount })
-      .eq("id", session.booking_id);
-  }
+  const bookingUpdate = session.booking_id
+    ? supabase
+        .from("bookings")
+        .update({ status: "completed", total_amount: amount })
+        .eq("id", session.booking_id)
+    : Promise.resolve({ error: null });
 
-  const method = parsed.data.payment_method ?? "upi";
-  const { data: existingPays } = await supabase
+  const existingPaysQuery = supabase
     .from("payments")
     .select("id")
     .eq("session_id", session.id)
     .order("created_at", { ascending: true });
 
-  const keepId = existingPays?.[0]?.id;
+  const [sessionRes, , , paysRes] = await Promise.all([
+    sessionUpdate,
+    screenUpdate,
+    bookingUpdate,
+    existingPaysQuery,
+  ]);
+
+  if (sessionRes.error) {
+    return { success: false, error: sessionRes.error.message };
+  }
+
+  const existingPays = paysRes.data ?? [];
+  const keepId = existingPays[0]?.id;
   if (keepId) {
-    await supabase
-      .from("payments")
-      .update({
-        amount,
-        booking_id: session.booking_id,
-        payment_method: method,
-        payment_status: "pending",
-        paid_at: null,
-      })
-      .eq("id", keepId);
-    const extras = (existingPays ?? []).slice(1);
-    for (const row of extras) {
-      await supabase.from("payments").delete().eq("id", row.id);
-    }
+    const extraIds = existingPays.slice(1).map((row) => row.id);
+    await Promise.all([
+      supabase
+        .from("payments")
+        .update({
+          amount,
+          booking_id: session.booking_id,
+          payment_method: method,
+          payment_status: "pending",
+          paid_at: null,
+        })
+        .eq("id", keepId),
+      extraIds.length
+        ? supabase.from("payments").delete().in("id", extraIds)
+        : Promise.resolve(null),
+    ]);
   } else {
     await supabase.from("payments").insert({
       session_id: session.id,
@@ -350,7 +346,6 @@ export async function endSessionAction(
     });
   }
 
-  revalidateOps();
   return {
     success: true,
     data: { amount, sessionId: session.id },
