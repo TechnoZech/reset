@@ -70,6 +70,20 @@ export function toDateString(date: Date) {
   return date.toISOString().slice(0, 10);
 }
 
+/** Local calendar date (cafe timezone), not UTC. */
+export function localDateString(date: Date | string) {
+  const d = typeof date === "string" ? new Date(date) : date;
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+export function localTimeString(date: Date | string) {
+  const d = typeof date === "string" ? new Date(date) : date;
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
 export function timeToMinutes(time: string) {
   const [h, m] = time.split(":").map(Number);
   return h * 60 + m;

@@ -146,6 +146,7 @@ export const ROLE_PERMISSIONS: Record<
     "customers",
     "earnings",
     "sessions",
+    "settings",
   ],
   staff: ["dashboard", "bookings", "screens", "sessions"],
 } as const;

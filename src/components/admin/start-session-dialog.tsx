@@ -253,7 +253,7 @@ export function StartSessionDialog({
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Payment</Label>
+              <Label>Pay at end</Label>
               <Select
                 value={form.watch("payment_method")}
                 onValueChange={(v) =>

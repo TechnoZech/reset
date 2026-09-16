@@ -30,6 +30,8 @@ export function SettingsForm({ settings }: { settings: CafeSettings | null }) {
       closing_time: settings?.closing_time?.slice(0, 5) ?? "23:00",
       timezone: settings?.timezone ?? "Asia/Kolkata",
       currency: settings?.currency ?? "INR",
+      upi_vpa: settings?.upi_vpa ?? "",
+      upi_payee_name: settings?.upi_payee_name ?? settings?.cafe_name ?? "USA GAMING",
     },
   });
 
@@ -37,7 +39,7 @@ export function SettingsForm({ settings }: { settings: CafeSettings | null }) {
     startTransition(async () => {
       const result = await updateCafeSettingsAction(values);
       if (!result.success) {
-        toast.error(result.error);
+        toast.error(result.error, { duration: 12000 });
         return;
       }
       toast.success(result.message);
@@ -99,6 +101,43 @@ export function SettingsForm({ settings }: { settings: CafeSettings | null }) {
         <div className="space-y-2">
           <Label htmlFor="currency">Currency</Label>
           <Input id="currency" {...form.register("currency")} />
+        </div>
+      </div>
+
+      <div className="space-y-3 rounded-lg border border-border p-4">
+        <div>
+          <p className="text-sm font-medium">UPI collect</p>
+          <p className="text-xs text-muted-foreground">
+            Customers scan this QR or tap Pay with UPI. Amount is filled
+            automatically when a session ends. If save fails with a missing-column
+            error, run this in the Supabase SQL editor first:
+          </p>
+          <pre className="overflow-x-auto rounded-md bg-background px-3 py-2 font-mono text-[11px] text-muted-foreground">
+            {`alter table public.cafe_settings
+  add column if not exists upi_vpa text,
+  add column if not exists upi_payee_name text;`}
+          </pre>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="upi_vpa">UPI ID</Label>
+          <Input
+            id="upi_vpa"
+            placeholder="upi_id@bank_name"
+            {...form.register("upi_vpa")}
+          />
+          {form.formState.errors.upi_vpa && (
+            <p className="text-xs text-destructive">
+              {form.formState.errors.upi_vpa.message}
+            </p>
+          )}
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="upi_payee_name">Payee name</Label>
+          <Input
+            id="upi_payee_name"
+            placeholder="USA GAMING"
+            {...form.register("upi_payee_name")}
+          />
         </div>
       </div>
 

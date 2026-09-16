@@ -24,8 +24,7 @@ export default async function BookingsPage() {
           "*, customers(id, name, mobile), screens(id, name, console_type), games(id, name)"
         )
         .gte("booking_date", today)
-        .order("booking_date")
-        .order("start_time"),
+        .order("created_at", { ascending: false }),
       supabase.from("screens").select("*").order("name"),
     ]);
 

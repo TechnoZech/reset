@@ -111,8 +111,31 @@ export const cafeSettingsSchema = z.object({
   closing_time: z.string().min(1),
   timezone: z.string().min(1),
   currency: z.string().min(1).max(8),
+  upi_vpa: z
+    .string()
+    .max(80)
+    .regex(/^$|^[\w.\-]{2,}@[\w.\-]{2,}$/i, "Enter a valid UPI ID like name@ybl")
+    .optional()
+    .nullable(),
+  upi_payee_name: z.string().max(60).optional().nullable(),
+});
+
+export const confirmPaymentSchema = z.object({
+  session_id: z.string().uuid(),
+  payment_method: z.enum(["cash", "upi", "card", "online"]).default("upi"),
+});
+
+export const requestExtensionSchema = z.object({
+  booking_id: z.string().uuid(),
+  extra_minutes: z.coerce.number().int().positive(),
+});
+
+export const resolveExtensionSchema = z.object({
+  booking_id: z.string().uuid(),
+  accept: z.boolean(),
 });
 
 export type GuestBookingInput = z.infer<typeof guestBookingSchema>;
 export type StartSessionInput = z.infer<typeof startSessionSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
+export type ConfirmPaymentInput = z.infer<typeof confirmPaymentSchema>;

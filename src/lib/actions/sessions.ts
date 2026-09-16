@@ -3,17 +3,25 @@
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import { calculatePrice, calculateSessionCharge } from "@/lib/pricing";
-import { getSessionElapsedMs } from "@/lib/utils";
+import {
+  asMinutes,
+  asPlayerCount,
+  calculatePrice,
+  calculateSessionCharge,
+  quoteExtendedPackage,
+} from "@/lib/pricing";
+import { addMinutesToTime, getSessionElapsedMs } from "@/lib/utils";
+import { parseExtension, writeExtension } from "@/lib/extensions";
 import {
   bookingStatusSchema,
+  confirmPaymentSchema,
   endSessionSchema,
   rescheduleBookingSchema,
+  resolveExtensionSchema,
   startSessionSchema,
 } from "@/lib/validations";
 import type { ActionResult } from "@/lib/actions/auth";
 import type { ConsoleType, PricingRule } from "@/lib/types/database";
-import { addMinutesToTime } from "@/lib/utils";
 
 function revalidateOps() {
   revalidatePath("/admin/dashboard");
@@ -160,15 +168,6 @@ export async function startSessionAction(
     .update({ status: "playing" })
     .eq("id", data.screen_id);
 
-  // Record initial payment intent / deposit as paid for walk-in packages
-  await supabase.from("payments").insert({
-    session_id: session.id,
-    amount: rate,
-    payment_method: data.payment_method,
-    payment_status: "paid",
-    paid_at: new Date().toISOString(),
-  });
-
   if (data.booking_id) {
     await supabase
       .from("bookings")
@@ -305,6 +304,9 @@ export async function endSessionAction(input: unknown): Promise<ActionResult<{ a
     players: session.players ?? 1,
   });
 
+  const packageAmount = Math.round(Number(session.rate) || 0);
+  const amount = Math.max(packageAmount, charge.amount);
+
   await supabase
     .from("sessions")
     .update({
@@ -313,7 +315,7 @@ export async function endSessionAction(input: unknown): Promise<ActionResult<{ a
       paused_at: null,
       total_paused_ms: totalPaused,
       duration_minutes: charge.minutes,
-      total_amount: charge.amount,
+      total_amount: amount,
     })
     .eq("id", session.id);
 
@@ -325,42 +327,138 @@ export async function endSessionAction(input: unknown): Promise<ActionResult<{ a
   if (session.booking_id) {
     await supabase
       .from("bookings")
-      .update({ status: "completed", total_amount: charge.amount })
+      .update({ status: "completed", total_amount: amount })
       .eq("id", session.booking_id);
   }
 
-  // Adjust payment to final server-calculated amount
-  const { data: existingPay } = await supabase
+  const method = parsed.data.payment_method ?? "upi";
+  const { data: existingPays } = await supabase
     .from("payments")
-    .select("id, amount")
+    .select("id")
     .eq("session_id", session.id)
-    .eq("payment_status", "paid")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .order("created_at", { ascending: true });
 
-  if (existingPay) {
+  const keepId = existingPays?.[0]?.id;
+  if (keepId) {
     await supabase
       .from("payments")
-      .update({ amount: charge.amount })
-      .eq("id", existingPay.id);
+      .update({
+        amount,
+        booking_id: session.booking_id,
+        payment_method: method,
+        payment_status: "pending",
+        paid_at: null,
+      })
+      .eq("id", keepId);
+    const extras = (existingPays ?? []).slice(1);
+    for (const row of extras) {
+      await supabase.from("payments").delete().eq("id", row.id);
+    }
   } else {
     await supabase.from("payments").insert({
       session_id: session.id,
       booking_id: session.booking_id,
-      amount: charge.amount,
-      payment_method: parsed.data.payment_method ?? "cash",
-      payment_status: "paid",
-      paid_at: endedAt.toISOString(),
+      amount,
+      payment_method: method,
+      payment_status: "pending",
+      paid_at: null,
     });
   }
 
   revalidateOps();
   return {
     success: true,
-    data: { amount: charge.amount },
-    message: `Session ended · ₹${charge.amount}`,
+    data: { amount, sessionId: session.id },
+    message: `Session ended · collect ₹${amount}`,
   };
+}
+
+export async function confirmPaymentCollectedAction(
+  input: unknown
+): Promise<ActionResult<{ amount: number; bookingId: string | null }>> {
+  await requireAdmin("sessions");
+  const parsed = confirmPaymentSchema.safeParse(input);
+  if (!parsed.success) {
+    return { success: false, error: parsed.error.issues[0]?.message ?? "Invalid payment" };
+  }
+
+  const supabase = await createClient();
+  const { data: session } = await supabase
+    .from("sessions")
+    .select("id, booking_id, total_amount, rate")
+    .eq("id", parsed.data.session_id)
+    .maybeSingle();
+
+  if (!session) return { success: false, error: "Session not found" };
+
+  const amount = Math.round(Number(session.total_amount) || Number(session.rate) || 0);
+  const paidAt = new Date().toISOString();
+  const { data: existing } = await supabase
+    .from("payments")
+    .select("id")
+    .eq("session_id", session.id)
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (existing?.id) {
+    const { error } = await supabase
+      .from("payments")
+      .update({
+        amount,
+        booking_id: session.booking_id,
+        payment_method: parsed.data.payment_method,
+        payment_status: "paid",
+        paid_at: paidAt,
+      })
+      .eq("id", existing.id);
+    if (error) return { success: false, error: error.message };
+  } else {
+    const { error } = await supabase.from("payments").insert({
+      session_id: session.id,
+      booking_id: session.booking_id,
+      amount,
+      payment_method: parsed.data.payment_method,
+      payment_status: "paid",
+      paid_at: paidAt,
+    });
+    if (error) return { success: false, error: error.message };
+  }
+
+  revalidateOps();
+  revalidatePath(`/admin/collect/${session.id}`);
+  if (session.booking_id) {
+    revalidatePath(`/booking/${session.booking_id}/pay`);
+    revalidatePath(`/booking/${session.booking_id}/thanks`);
+  }
+  return {
+    success: true,
+    data: { amount, bookingId: session.booking_id },
+    message: "Payment collected",
+  };
+}
+
+export async function getAdminCollectSession(sessionId: string) {
+  await requireAdmin("sessions");
+  const supabase = await createClient();
+  const { data: session } = await supabase
+    .from("sessions")
+    .select(
+      "id, status, total_amount, rate, duration_minutes, players, booking_id, customers(name, mobile), games(name), screens(name)"
+    )
+    .eq("id", sessionId)
+    .maybeSingle();
+  if (!session) return null;
+
+  const { data: payment } = await supabase
+    .from("payments")
+    .select("id, amount, payment_status, payment_method")
+    .eq("session_id", sessionId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  return { session, payment };
 }
 
 export async function updateBookingStatusAction(input: unknown): Promise<ActionResult> {
@@ -530,4 +628,133 @@ export async function startSessionFromBookingAction(
     payment_method: "cash",
     booking_id: booking.id,
   });
+}
+
+export async function resolveExtensionAction(
+  input: unknown
+): Promise<ActionResult<{ totalMinutes: number; quotedTotal: number }>> {
+  await requireAdmin("sessions");
+  const parsed = resolveExtensionSchema.safeParse(input);
+  if (!parsed.success) {
+    return { success: false, error: parsed.error.issues[0]?.message ?? "Invalid request" };
+  }
+
+  const supabase = await createClient();
+  const { data: booking } = await supabase
+    .from("bookings")
+    .select("*")
+    .eq("id", parsed.data.booking_id)
+    .maybeSingle();
+
+  if (!booking) return { success: false, error: "Booking not found" };
+
+  const extension = parseExtension(booking.notes);
+  if (extension.status !== "pending") {
+    return { success: false, error: "No pending extra-time request" };
+  }
+
+  if (!parsed.data.accept) {
+    const { error } = await supabase
+      .from("bookings")
+      .update({ notes: writeExtension(booking.notes, "rejected", extension.extraMinutes, extension.quotedTotal) })
+      .eq("id", booking.id);
+    if (error) return { success: false, error: error.message };
+    revalidateOps();
+    return { success: true, message: "Extra time declined" };
+  }
+
+  const { data: session } = await supabase
+    .from("sessions")
+    .select("*")
+    .eq("booking_id", booking.id)
+    .in("status", ["active", "paused", "completed"])
+    .order("started_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!session) return { success: false, error: "Session not found" };
+
+  const extraMinutes = asMinutes(extension.extraMinutes);
+  const currentDuration = asMinutes(session.duration_minutes || booking.duration_minutes);
+  const elapsedMs = getSessionElapsedMs({
+    startedAt: session.started_at,
+    pausedAt: session.paused_at,
+    totalPausedMs: session.total_paused_ms,
+    endedAt: session.ended_at,
+  });
+  const elapsedMin = Math.max(0, Math.ceil(elapsedMs / 60000));
+  const newDuration =
+    elapsedMin >= currentDuration
+      ? elapsedMin + extraMinutes
+      : currentDuration + extraMinutes;
+
+  const rules = await loadPricingRules();
+  let consoleType: ConsoleType = "PS5";
+  let hourly = 89;
+  if (session.screen_id) {
+    const { data: screen } = await supabase
+      .from("screens")
+      .select("console_type, hourly_rate")
+      .eq("id", session.screen_id)
+      .maybeSingle();
+    if (screen) {
+      consoleType = screen.console_type as ConsoleType;
+      hourly = Number(screen.hourly_rate);
+    }
+  }
+
+  const players = asPlayerCount(booking.players ?? session.players);
+  const previousAmount = Number(booking.total_amount) || Number(session.rate) || 0;
+  const quote = quoteExtendedPackage({
+    consoleType,
+    durationMinutes: currentDuration,
+    extraMinutes,
+    date: booking.booking_date,
+    startTime: booking.start_time,
+    rules,
+    fallbackHourlyRate: hourly,
+    players,
+    paidAmount: previousAmount,
+  });
+
+  const endTime = addMinutesToTime(booking.start_time, newDuration);
+
+  const sessionPatch: Record<string, unknown> = {
+    duration_minutes: newDuration,
+    rate: quote.quotedTotal,
+  };
+  if (session.status === "completed") {
+    sessionPatch.status = "active";
+    sessionPatch.ended_at = null;
+    sessionPatch.total_amount = null;
+  }
+
+  const { error: sessionError } = await supabase
+    .from("sessions")
+    .update(sessionPatch)
+    .eq("id", session.id);
+  if (sessionError) return { success: false, error: sessionError.message };
+
+  if (session.status === "completed") {
+    await supabase.from("screens").update({ status: "playing" }).eq("id", session.screen_id);
+  }
+
+  const { error: bookingError } = await supabase
+    .from("bookings")
+    .update({
+      duration_minutes: newDuration,
+      end_time: endTime,
+      total_amount: quote.quotedTotal,
+      status: "confirmed",
+      notes: writeExtension(booking.notes, "accepted", extraMinutes, quote.quotedTotal),
+    })
+    .eq("id", booking.id);
+  if (bookingError) return { success: false, error: bookingError.message };
+
+  revalidateOps();
+  return {
+    success: true,
+    data: { totalMinutes: newDuration, quotedTotal: quote.quotedTotal },
+    message: `Extra time approved · total due at end ₹${quote.quotedTotal}`,
+  };
 }

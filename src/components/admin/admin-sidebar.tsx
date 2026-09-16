@@ -21,6 +21,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { logoutAction } from "@/lib/actions/auth";
+import { usePendingBookingCount } from "@/hooks/use-pending-booking-count";
 import { useState } from "react";
 
 const ICONS = {
@@ -36,9 +37,11 @@ const ICONS = {
 
 function NavLinks({
   role,
+  pendingBookings,
   onNavigate,
 }: {
   role: UserRole;
+  pendingBookings: number;
   onNavigate?: () => void;
 }) {
   const pathname = usePathname();
@@ -48,6 +51,7 @@ function NavLinks({
       {ADMIN_NAV.filter((item) => canAccess(role, item.permission)).map((item) => {
         const Icon = ICONS[item.icon as keyof typeof ICONS];
         const active = pathname.startsWith(item.href);
+        const showBadge = item.href === "/admin/bookings" && pendingBookings > 0;
         return (
           <Link
             key={item.href}
@@ -60,8 +64,18 @@ function NavLinks({
                 : "text-muted-foreground hover:bg-muted hover:text-foreground"
             )}
           >
-            <Icon className="size-4" />
-            {item.title}
+            <span className="relative">
+              <Icon className="size-4" />
+              {showBadge ? (
+                <span className="absolute -top-1.5 -right-1.5 size-2 rounded-full bg-primary" />
+              ) : null}
+            </span>
+            <span className="flex-1">{item.title}</span>
+            {showBadge ? (
+              <span className="min-w-5 rounded-full bg-primary px-1.5 text-center text-[11px] font-semibold text-primary-foreground">
+                {pendingBookings > 99 ? "99+" : pendingBookings}
+              </span>
+            ) : null}
           </Link>
         );
       })}
@@ -78,6 +92,7 @@ export function AdminSidebar({
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const pendingBookings = usePendingBookingCount();
 
   const logout = async () => {
     await logoutAction();
@@ -113,20 +128,29 @@ export function AdminSidebar({
     <>
       <aside className="hidden w-60 shrink-0 flex-col border-r border-border bg-sidebar lg:flex">
         {brand}
-        <NavLinks role={role} />
+        <NavLinks role={role} pendingBookings={pendingBookings} />
         {footer}
       </aside>
 
       <div className="sticky top-0 z-40 flex h-14 items-center gap-3 border-b border-border bg-background/90 px-4 backdrop-blur lg:hidden">
         <Sheet open={open} onOpenChange={setOpen}>
           <SheetTrigger asChild>
-            <Button variant="outline" size="icon">
+            <Button variant="outline" size="icon" className="relative">
               <Menu className="size-4" />
+              {pendingBookings > 0 ? (
+                <span className="absolute -top-1 -right-1 min-w-4 rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
+                  {pendingBookings > 9 ? "9+" : pendingBookings}
+                </span>
+              ) : null}
             </Button>
           </SheetTrigger>
           <SheetContent side="left" className="flex w-64 flex-col p-0">
             {brand}
-            <NavLinks role={role} onNavigate={() => setOpen(false)} />
+            <NavLinks
+              role={role}
+              pendingBookings={pendingBookings}
+              onNavigate={() => setOpen(false)}
+            />
             {footer}
           </SheetContent>
         </Sheet>

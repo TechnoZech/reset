@@ -140,20 +140,40 @@ export async function updateCafeSettingsAction(input: unknown): Promise<ActionRe
     .maybeSingle();
 
   const payload = {
-    ...parsed.data,
-    email: parsed.data.email || null,
+    cafe_name: parsed.data.cafe_name,
     address: parsed.data.address || null,
     phone: parsed.data.phone || null,
+    email: parsed.data.email || null,
+    opening_time: parsed.data.opening_time,
+    closing_time: parsed.data.closing_time,
+    timezone: parsed.data.timezone,
+    currency: parsed.data.currency,
+  };
+  const upiPayload = {
+    upi_vpa: parsed.data.upi_vpa?.trim() || null,
+    upi_payee_name: parsed.data.upi_payee_name?.trim() || null,
   };
 
-  const { error } = existing
-    ? await supabase.from("cafe_settings").update(payload).eq("id", existing.id)
-    : await supabase.from("cafe_settings").insert(payload);
+  const write = (row: Record<string, unknown>) =>
+    existing
+      ? supabase.from("cafe_settings").update(row).eq("id", existing.id)
+      : supabase.from("cafe_settings").insert(row);
 
+  const { error } = await write({ ...payload, ...upiPayload });
+  if (error && /upi_/i.test(error.message || "")) {
+    const fallback = await write(payload);
+    if (fallback.error) return { success: false, error: fallback.error.message };
+    return {
+      success: false,
+      error:
+        "Cafe details saved, but UPI columns are missing in Supabase. Run this SQL in the SQL editor, then save UPI again:\n\nalter table public.cafe_settings add column if not exists upi_vpa text;\nalter table public.cafe_settings add column if not exists upi_payee_name text;",
+    };
+  }
   if (error) return { success: false, error: error.message };
 
   revalidatePath("/admin/settings");
   revalidatePath("/");
+  revalidatePath("/booking");
   return { success: true, message: "Settings saved" };
 }
 

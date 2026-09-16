@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   CalendarClock,
@@ -13,10 +14,12 @@ import {
 } from "lucide-react";
 import {
   rescheduleBookingAction,
+  resolveExtensionAction,
   startSessionFromBookingAction,
   updateBookingStatusAction,
 } from "@/lib/actions/sessions";
 import { BOOKING_STATUSES, DURATION_OPTIONS, durationLabel } from "@/lib/constants";
+import { parseExtension, extensionChargeQuote } from "@/lib/extensions";
 import { unlockSessionAudio } from "@/lib/session-sounds";
 import type {
   BookingStatus,
@@ -24,6 +27,8 @@ import type {
   Screen,
 } from "@/lib/types/database";
 import { formatCurrency } from "@/lib/utils";
+import { createClient } from "@/lib/supabase/client";
+import { ChargeBreakdown } from "@/components/charge-breakdown";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -57,6 +62,7 @@ export function BookingsManager({
   bookings: BookingWithRelations[];
   screens: Screen[];
 }) {
+  const router = useRouter();
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<string>("all");
   const [pending, startTransition] = useTransition();
@@ -66,16 +72,39 @@ export function BookingsManager({
   const [duration, setDuration] = useState(60);
   const [screenId, setScreenId] = useState<string>("");
 
+  useEffect(() => {
+    const supabase = createClient();
+    const channel = supabase
+      .channel("admin-bookings-list")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "bookings" },
+        () => router.refresh()
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [router]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return bookings.filter((b) => {
-      if (status !== "all" && b.status !== status) return false;
-      if (!q) return true;
-      const name = b.customers?.name?.toLowerCase() ?? "";
-      const mobile = b.customers?.mobile ?? "";
-      const game = b.games?.name?.toLowerCase() ?? "";
-      return name.includes(q) || mobile.includes(q) || game.includes(q);
-    });
+    const rank = (status: string) =>
+      status === "pending" ? 0 : status === "confirmed" ? 1 : 2;
+    return bookings
+      .filter((b) => {
+        if (status !== "all" && b.status !== status) return false;
+        if (!q) return true;
+        const name = b.customers?.name?.toLowerCase() ?? "";
+        const mobile = b.customers?.mobile ?? "";
+        const game = b.games?.name?.toLowerCase() ?? "";
+        return name.includes(q) || mobile.includes(q) || game.includes(q);
+      })
+      .sort((a, b) => {
+        const byStatus = rank(a.status) - rank(b.status);
+        if (byStatus !== 0) return byStatus;
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      });
   }, [bookings, query, status]);
 
   function runStatus(bookingId: string, next: BookingStatus) {
@@ -92,11 +121,13 @@ export function BookingsManager({
   function startSession(bookingId: string) {
     startTransition(async () => {
       const result = await startSessionFromBookingAction(bookingId);
-      if (!result.success) toast.error(result.error);
-      else {
-        unlockSessionAudio();
-        toast.success(result.message || "Session started");
+      if (!result.success) {
+        toast.error(result.error);
+        return;
       }
+      unlockSessionAudio();
+      toast.success(result.message || "Session started");
+      router.push("/admin/dashboard");
     });
   }
 
@@ -163,18 +194,34 @@ export function BookingsManager({
           </p>
         </div>
       ) : (
-        <ul className="space-y-3">
+        <div className="relative space-y-3">
+          {pending && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-background/70 backdrop-blur-[1px]">
+              <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-3 text-sm shadow-lg">
+                <Loader2 className="size-4 animate-spin" />
+                Updating bookings…
+              </div>
+            </div>
+          )}
+          <ul className="space-y-3">
           {filtered.map((b) => {
             const actionable = ["pending", "confirmed"].includes(b.status);
+            const extension = parseExtension(b.notes);
+            const isNew =
+              b.status === "pending" &&
+              Date.now() - new Date(b.created_at).getTime() < 15 * 60 * 1000;
             return (
               <li
                 key={b.id}
-                className="rounded-xl border border-border bg-card p-4"
+                className={`rounded-xl border bg-card p-4 ${pending ? "opacity-50" : ""} ${
+                  isNew ? "border-primary/50 ring-1 ring-primary/30" : "border-border"
+                }`}
               >
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <div className="min-w-0 space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="font-medium">{b.customers?.name || "Guest"}</p>
+                      {isNew ? <Badge>New</Badge> : null}
                       <Badge variant={statusVariant[b.status]}>
                         {b.status.replace("_", " ")}
                       </Badge>
@@ -197,9 +244,60 @@ export function BookingsManager({
                     <p className="text-sm font-medium">
                       {formatCurrency(Number(b.total_amount))}
                     </p>
+                    {extension.status === "pending" ? (
+                      <ChargeBreakdown
+                        className="mt-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2"
+                        currentMinutes={b.duration_minutes}
+                        quote={extensionChargeQuote({
+                          durationMinutes: b.duration_minutes,
+                          players: b.players,
+                          currentAmount: Number(b.total_amount),
+                          extraMinutes: extension.extraMinutes,
+                          quotedTotal: extension.quotedTotal,
+                        })}
+                      />
+                    ) : null}
                   </div>
 
                   <div className="flex flex-wrap gap-2">
+                    {extension.status === "pending" && (
+                      <>
+                        <Button
+                          size="sm"
+                          disabled={pending}
+                          onClick={() =>
+                            startTransition(async () => {
+                              const result = await resolveExtensionAction({
+                                booking_id: b.id,
+                                accept: true,
+                              });
+                              if (!result.success) toast.error(result.error);
+                              else toast.success(result.message);
+                            })
+                          }
+                        >
+                          Accept +{durationLabel(extension.extraMinutes)} · due{" "}
+                          {formatCurrency(extension.quotedTotal)}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={pending}
+                          onClick={() =>
+                            startTransition(async () => {
+                              const result = await resolveExtensionAction({
+                                booking_id: b.id,
+                                accept: false,
+                              });
+                              if (!result.success) toast.error(result.error);
+                              else toast.success(result.message);
+                            })
+                          }
+                        >
+                          Decline extra
+                        </Button>
+                      </>
+                    )}
                     {b.status === "pending" && (
                       <Button
                         size="sm"
@@ -259,15 +357,13 @@ export function BookingsManager({
                         </Button>
                       </>
                     )}
-                    {pending && (
-                      <Loader2 className="size-4 animate-spin text-muted-foreground" />
-                    )}
                   </div>
                 </div>
               </li>
             );
           })}
-        </ul>
+          </ul>
+        </div>
       )}
 
       <Dialog open={!!reschedule} onOpenChange={(v) => !v && setReschedule(null)}>

@@ -150,6 +150,8 @@ export interface CafeSettings {
   closing_time: string;
   timezone: string;
   currency: string;
+  upi_vpa: string | null;
+  upi_payee_name: string | null;
   updated_at: string;
 }
 
@@ -327,6 +329,8 @@ export type Database = {
           closing_time?: string;
           timezone?: string;
           currency?: string;
+          upi_vpa?: string | null;
+          upi_payee_name?: string | null;
           updated_at?: string;
         };
         Update: Partial<Omit<CafeSettings, "id">>;

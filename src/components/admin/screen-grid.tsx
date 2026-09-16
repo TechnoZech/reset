@@ -14,12 +14,15 @@ import { createClient } from "@/lib/supabase/client";
 import {
   endSessionAction,
   pauseSessionAction,
+  resolveExtensionAction,
   resumeSessionAction,
 } from "@/lib/actions/sessions";
 import type { Customer, Game, ScreenWithSession } from "@/lib/types/database";
 import { useSessionOvertimeAlarm, isSessionOvertime } from "@/hooks/use-session-overtime-alarm";
 import { unlockSessionAudio } from "@/lib/session-sounds";
+import { parseExtension, extensionChargeQuote } from "@/lib/extensions";
 import { formatCurrency, cn } from "@/lib/utils";
+import { ChargeBreakdown } from "@/components/charge-breakdown";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { LiveTimer } from "@/components/admin/live-timer";
@@ -123,6 +126,7 @@ export function ScreenGrid({
           const overtime = session
             ? isSessionOvertime({ ...session, nowMs: now })
             : false;
+          const extension = parseExtension(session?.bookings?.notes);
 
           return (
             <div
@@ -166,6 +170,28 @@ export function ScreenGrid({
                     <p className="text-sm text-muted-foreground">
                       Package {formatCurrency(Number(session.rate))}
                     </p>
+                    {extension.status === "pending" ? (
+                      <ChargeBreakdown
+                        className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2"
+                        currentMinutes={
+                          session.duration_minutes ||
+                          session.bookings?.duration_minutes ||
+                          0
+                        }
+                        quote={extensionChargeQuote({
+                          durationMinutes:
+                            session.duration_minutes ||
+                            session.bookings?.duration_minutes ||
+                            0,
+                          players: session.players,
+                          currentAmount: Number(
+                            session.bookings?.total_amount ?? session.rate ?? 0
+                          ),
+                          extraMinutes: extension.extraMinutes,
+                          quotedTotal: extension.quotedTotal,
+                        })}
+                      />
+                    ) : null}
                   </>
                 ) : status === "reserved" && booking ? (
                   <>
@@ -216,22 +242,50 @@ export function ScreenGrid({
                     Resume
                   </Button>
                 )}
+                {session && extension.status === "pending" && session.bookings?.id && (
+                  <Button
+                    size="sm"
+                    disabled={pending}
+                    onClick={() =>
+                      run(() =>
+                        resolveExtensionAction({
+                          booking_id: session.bookings!.id,
+                          accept: true,
+                        })
+                      )
+                    }
+                  >
+                    Accept extra · +{extension.extraMinutes}m · due{" "}
+                    {formatCurrency(extension.quotedTotal)}
+                  </Button>
+                )}
                 {session && (
                   <Button
                     size="sm"
                     variant="destructive"
                     disabled={pending}
                     onClick={() =>
-                      run(() =>
-                        endSessionAction({
+                      startTransition(async () => {
+                        const result = await endSessionAction({
                           session_id: session.id,
-                          payment_method: "cash",
-                        })
-                      )
+                          payment_method: "upi",
+                        });
+                        if (!result.success) {
+                          toast.error(result.error);
+                          refresh();
+                          return;
+                        }
+                        toast.success(result.message);
+                        if (result.data?.sessionId) {
+                          router.push(`/admin/collect/${result.data.sessionId}`);
+                          return;
+                        }
+                        refresh();
+                      })
                     }
                   >
                     <Square className="size-3.5" />
-                    End
+                    End · collect {formatCurrency(Number(session.rate) || 0)}
                   </Button>
                 )}
                 <Button size="sm" variant="ghost" onClick={() => setViewScreen(screen)}>

@@ -49,11 +49,13 @@ function timeWindowMatches(
  */
 export function calculatePrice(input: PriceQuoteInput): number {
   const date = typeof input.date === "string" ? new Date(input.date) : input.date;
+  const durationMinutes = asMinutes(input.durationMinutes);
+  const players = asPlayerCount(input.players);
   const active = input.rules.filter(
     (r) =>
       r.is_active &&
       r.console_type === input.consoleType &&
-      r.duration_minutes === input.durationMinutes &&
+      Number(r.duration_minutes) === durationMinutes &&
       dayTypeMatches(r.day_type, date) &&
       timeWindowMatches(r.start_time, r.end_time, input.startTime)
   );
@@ -69,7 +71,7 @@ export function calculatePrice(input: PriceQuoteInput): number {
       })
       .sort((a, b) => b.score - a.score || Number(a.r.price) - Number(b.r.price));
 
-    return applyPlayerMultiplier(Number(scored[0].r.price), input.players);
+    return applyPlayerMultiplier(Number(scored[0].r.price), players);
   }
 
   // Pro-rate from nearest longer rule or hourly fallback
@@ -86,14 +88,83 @@ export function calculatePrice(input: PriceQuoteInput): number {
     89;
 
   return applyPlayerMultiplier(
-    Math.ceil((Number(hourly) * input.durationMinutes) / 60),
-    input.players
+    Math.ceil((Number(hourly) * durationMinutes) / 60),
+    players
   );
 }
 
+export function asPlayerCount(players?: number | null) {
+  const count = Math.round(Number(players));
+  return Number.isFinite(count) && count > 0 ? count : 1;
+}
+
+export function asMinutes(value?: number | string | null) {
+  const n = Math.round(Number(value));
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
 export function applyPlayerMultiplier(basePrice: number, players = 1) {
-  const count = Number.isFinite(players) ? Math.max(1, Math.round(players)) : 1;
-  return Math.round(basePrice * count);
+  return Math.round(basePrice * asPlayerCount(players));
+}
+
+export type ExtensionQuote = {
+  extraMinutes: number;
+  totalMinutes: number;
+  players: number;
+  currentAmount: number;
+  quotedTotal: number;
+  extraCharge: number;
+  currentPerPlayer: number;
+  newPerPlayer: number;
+};
+
+/**
+ * Extra minutes are added once for the screen — never × player count.
+ * Players only multiply the package price (30+30 → 60-min rate × players).
+ */
+export function quoteExtendedPackage(
+  input: PriceQuoteInput & { extraMinutes: number; paidAmount?: number | null }
+): ExtensionQuote {
+  const durationMinutes = asMinutes(input.durationMinutes);
+  const extraMinutes = asMinutes(input.extraMinutes);
+  const players = asPlayerCount(input.players);
+  const totalMinutes = durationMinutes + extraMinutes;
+
+  const rawQuotedTotal = calculatePrice({
+    consoleType: input.consoleType,
+    durationMinutes: totalMinutes,
+    date: input.date,
+    startTime: input.startTime,
+    rules: input.rules,
+    fallbackHourlyRate: input.fallbackHourlyRate,
+    players,
+  });
+
+  const calculatedCurrent = calculatePrice({
+    consoleType: input.consoleType,
+    durationMinutes,
+    date: input.date,
+    startTime: input.startTime,
+    rules: input.rules,
+    fallbackHourlyRate: input.fallbackHourlyRate,
+    players,
+  });
+
+  const paid = Number(input.paidAmount);
+  const currentAmount =
+    Number.isFinite(paid) && paid >= 0 ? Math.round(paid) : calculatedCurrent;
+  const quotedTotal = Math.max(rawQuotedTotal, currentAmount);
+
+  return {
+    extraMinutes,
+    totalMinutes,
+    players,
+    currentAmount,
+    quotedTotal,
+    extraCharge: Math.max(0, quotedTotal - currentAmount),
+    currentPerPlayer: Math.round(currentAmount / players),
+    newPerPlayer: Math.round(quotedTotal / players),
+  };
 }
 
 /** Bill actual play time using 15-minute rounding up against pricing rules. */

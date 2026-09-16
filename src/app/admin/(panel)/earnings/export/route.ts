@@ -1,8 +1,53 @@
 import { requireAdmin } from "@/lib/auth";
 import { getEarningsExportData } from "@/lib/data/dashboard";
 import { resolveEarningsRange } from "@/lib/earnings-range";
-import { buildExcelXml } from "@/lib/excel";
+import { buildExcelXml, type ExcelCell } from "@/lib/excel";
 import { formatCurrency, formatHours } from "@/lib/utils";
+
+const ACTIVITY_HEADERS = [
+  "Date",
+  "Time",
+  "Type",
+  "Customer",
+  "Mobile",
+  "Game",
+  "Screen",
+  "Players",
+  "Duration (min)",
+  "Amount",
+  "Payment",
+  "Status",
+];
+
+function activityRow(row: {
+  date: string;
+  time: string;
+  type: string;
+  customer: string;
+  mobile: string;
+  game: string;
+  screen: string;
+  players: number;
+  duration: number | null;
+  amount: number;
+  paymentMethod: string;
+  status: string;
+}): ExcelCell[] {
+  return [
+    row.date,
+    row.time,
+    row.type,
+    row.customer,
+    row.mobile,
+    row.game,
+    row.screen,
+    row.players,
+    row.duration,
+    Number(row.amount) || 0,
+    row.paymentMethod,
+    row.status,
+  ];
+}
 
 export async function GET(request: Request) {
   await requireAdmin("earnings");
@@ -19,13 +64,27 @@ export async function GET(request: Request) {
   const period =
     range.from === range.to ? range.from : `${range.from} to ${range.to}`;
 
-  const xml = buildExcelXml([
+  const dayByDayRows: ExcelCell[][] = [ACTIVITY_HEADERS];
+  for (const date of data.dates) {
+    const rows = data.activity.filter((r) => r.date === date);
+    if (rows.length === 0) {
+      dayByDayRows.push([date, "", "", "No activity", "", "", "", "", "", 0, "", ""]);
+      continue;
+    }
+    for (const row of rows) dayByDayRows.push(activityRow(row));
+    const total = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+    dayByDayRows.push(["", "", "", "", "", "", "", "", `${date} total`, total, "", ""]);
+    dayByDayRows.push([]);
+  }
+
+  const sheets: { name: string; rows: ExcelCell[][] }[] = [
     {
       name: "Summary",
       rows: [
-        ["USA GAMING — Earnings export"],
+        ["USA GAMING — Day-by-day earnings"],
         ["Period", period],
         ["Preset", range.preset],
+        ["Days", data.dates.length],
         [],
         ["Metric", "Value"],
         ["Revenue", data.analytics.revenue],
@@ -37,83 +96,41 @@ export async function GET(request: Request) {
         ["Avg duration (min)", data.analytics.averageSessionDuration],
         ["Unique players", data.analytics.uniqueCustomers],
         ["Repeat players", data.analytics.repeatCustomers],
-        ["Total customers", data.analytics.totalCustomers],
+        [],
+        ["Date", "Visits", "Players", "Amount"],
+        ...data.dayTotals.map((d) => [d.date, d.visits, d.players, d.revenue]),
       ],
     },
     {
-      name: "Daily",
-      rows: [
-        ["Date", "Revenue", "Bookings"],
-        ...data.daily.map((row) => [row.date, row.revenue, row.bookings]),
-      ],
+      name: "Day by day",
+      rows: dayByDayRows,
     },
-    {
-      name: "Sessions",
-      rows: [
-        [
-          "Started",
-          "Ended",
-          "Status",
-          "Duration (min)",
-          "Players",
-          "Amount",
-          "Rate",
-          "Customer",
-          "Mobile",
-          "Screen",
-          "Game",
+  ];
+
+  // One worksheet per calendar day (7 days → 7 day sheets).
+  if (data.dates.length <= 31) {
+    for (const date of data.dates) {
+      const rows = data.activity.filter((r) => r.date === date);
+      const total = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+      sheets.push({
+        name: date,
+        rows: [
+          [`USA GAMING — ${date}`],
+          ["Visits", rows.length],
+          ["Day total", total],
+          [],
+          ACTIVITY_HEADERS,
+          ...(rows.length
+            ? rows.map(activityRow)
+            : [["", "", "", "No activity", "", "", "", "", "", "", "", ""]]),
+          [],
+          ["", "", "", "", "", "", "", "", "Day total", total, "", ""],
         ],
-        ...data.sessions.map((s) => [
-          s.started,
-          s.ended,
-          s.status,
-          s.duration,
-          s.players,
-          s.amount == null ? "" : Number(s.amount),
-          s.rate == null ? "" : Number(s.rate),
-          s.customer,
-          s.mobile,
-          s.screen,
-          s.game,
-        ]),
-      ],
-    },
-    {
-      name: "Payments",
-      rows: [
-        ["Paid at", "Amount", "Method", "Status"],
-        ...data.payments.map((p) => [p.paidAt, p.amount, p.method, p.status]),
-      ],
-    },
-    {
-      name: "Bookings",
-      rows: [
-        [
-          "Date",
-          "Time",
-          "Duration (min)",
-          "Players",
-          "Status",
-          "Amount",
-          "Customer",
-          "Mobile",
-          "Game",
-          "Screen",
-        ],
-        ...data.bookings.map((b) => [
-          b.date,
-          b.time,
-          b.duration,
-          b.players,
-          b.status,
-          b.amount,
-          b.customer,
-          b.mobile,
-          b.game,
-          b.screen,
-        ]),
-      ],
-    },
+      });
+    }
+  }
+
+  sheets.push(
     {
       name: "Games",
       rows: [
@@ -127,9 +144,10 @@ export async function GET(request: Request) {
         ["Screen", "Hours"],
         ...data.screens.map((s) => [s.name, s.hours]),
       ],
-    },
-  ]);
+    }
+  );
 
+  const xml = buildExcelXml(sheets);
   const filename = `usa-gaming-earnings-${range.from}-to-${range.to}.xls`;
 
   return new Response(xml, {

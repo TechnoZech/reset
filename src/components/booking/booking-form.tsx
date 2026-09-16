@@ -326,7 +326,7 @@ export function BookingForm({
             <dd>{formatCurrency(Number(basePrice))}</dd>
           </div>
           <div className="flex justify-between border-t border-border pt-3">
-            <dt className="font-medium">Estimated total</dt>
+            <dt className="font-medium">Due at the end</dt>
             <dd className="font-display text-lg font-bold text-primary">
               {formatCurrency(Number(quote))}
             </dd>
@@ -334,7 +334,8 @@ export function BookingForm({
         </dl>
         <p className="text-xs text-muted-foreground">
           Price is per player — {players} player{players > 1 ? "s" : ""} ×{" "}
-          {formatCurrency(Number(basePrice))}. Final total is locked on the server.
+          {formatCurrency(Number(basePrice))}. Pay the full amount at the cafe when your
+          session ends.
         </p>
         <Button type="submit" className="w-full" size="lg" disabled={pending}>
           {pending && <Loader2 className="size-4 animate-spin" />}
